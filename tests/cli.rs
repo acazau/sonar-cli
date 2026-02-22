@@ -16,6 +16,26 @@ fn cli() -> Command {
     cmd
 }
 
+/// Assert that running the CLI with the given args fails with "Project key is required".
+fn assert_missing_project(args: &[&str]) {
+    cli()
+        .args(args)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Project key is required"));
+}
+
+/// Assert that running a subcommand with `--help` succeeds and stdout contains all expected strings.
+fn assert_help_contains(subcommand: &str, expected: &[&str]) {
+    let mut assertion = cli()
+        .args([subcommand, "--help"])
+        .assert()
+        .success();
+    for s in expected {
+        assertion = assertion.stdout(predicate::str::contains(*s));
+    }
+}
+
 // ── Top-level flags ─────────────────────────────────────────────────
 
 #[test]
@@ -57,188 +77,99 @@ fn test_invalid_subcommand() {
 
 #[test]
 fn test_health_help() {
-    cli()
-        .args(["health", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Check SonarQube server health"));
+    assert_help_contains("health", &["Check SonarQube server health"]);
 }
 
 #[test]
 fn test_quality_gate_help() {
-    cli()
-        .args(["quality-gate", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("quality gate status"))
-        .stdout(predicate::str::contains("--fail-on-error"));
+    assert_help_contains("quality-gate", &["quality gate status", "--fail-on-error"]);
 }
 
 #[test]
 fn test_issues_help() {
-    cli()
-        .args(["issues", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--severity"))
-        .stdout(predicate::str::contains("--status"))
-        .stdout(predicate::str::contains("--rule"))
-        .stdout(predicate::str::contains("--language"));
+    assert_help_contains("issues", &["--severity", "--status", "--rule", "--language"]);
 }
 
 #[test]
 fn test_measures_help() {
-    cli()
-        .args(["measures", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--metrics"));
+    assert_help_contains("measures", &["--metrics"]);
 }
 
 #[test]
 fn test_coverage_help() {
-    cli()
-        .args(["coverage", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--min-coverage"))
-        .stdout(predicate::str::contains("--sort"));
+    assert_help_contains("coverage", &["--min-coverage", "--sort"]);
 }
 
 #[test]
 fn test_duplications_help() {
-    cli()
-        .args(["duplications", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--details"));
+    assert_help_contains("duplications", &["--details"]);
 }
 
 #[test]
 fn test_hotspots_help() {
-    cli()
-        .args(["hotspots", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--status"));
+    assert_help_contains("hotspots", &["--status"]);
 }
 
 #[test]
 fn test_projects_help() {
-    cli()
-        .args(["projects", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--search"))
-        .stdout(predicate::str::contains("--qualifier"));
+    assert_help_contains("projects", &["--search", "--qualifier"]);
 }
 
 #[test]
 fn test_history_help() {
-    cli()
-        .args(["history", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--metrics"))
-        .stdout(predicate::str::contains("--from"))
-        .stdout(predicate::str::contains("--to"));
+    assert_help_contains("history", &["--metrics", "--from", "--to"]);
 }
 
 #[test]
 fn test_rules_help() {
-    cli()
-        .args(["rules", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--language"))
-        .stdout(predicate::str::contains("--severity"))
-        .stdout(predicate::str::contains("--rule-type"));
+    assert_help_contains("rules", &["--language", "--severity", "--rule-type"]);
 }
 
 #[test]
 fn test_source_help() {
-    cli()
-        .args(["source", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--from"))
-        .stdout(predicate::str::contains("--to"))
-        .stdout(predicate::str::contains("<COMPONENT>"));
+    assert_help_contains("source", &["--from", "--to", "<COMPONENT>"]);
 }
 
 #[test]
 fn test_wait_help() {
-    cli()
-        .args(["wait", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--timeout"))
-        .stdout(predicate::str::contains("--poll-interval"));
+    assert_help_contains("wait", &["--timeout", "--poll-interval"]);
 }
 
 // ── Missing --project validation (exits before any network call) ────
 
 #[test]
 fn test_issues_missing_project() {
-    cli()
-        .arg("issues")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["issues"]);
 }
 
 #[test]
 fn test_quality_gate_missing_project() {
-    cli()
-        .arg("quality-gate")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["quality-gate"]);
 }
 
 #[test]
 fn test_measures_missing_project() {
-    cli()
-        .arg("measures")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["measures"]);
 }
 
 #[test]
 fn test_coverage_missing_project() {
-    cli()
-        .arg("coverage")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["coverage"]);
 }
 
 #[test]
 fn test_duplications_missing_project() {
-    cli()
-        .arg("duplications")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["duplications"]);
 }
 
 #[test]
 fn test_hotspots_missing_project() {
-    cli()
-        .arg("hotspots")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["hotspots"]);
 }
 
 #[test]
 fn test_history_missing_project() {
-    cli()
-        .args(["history", "--metrics", "coverage"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["history", "--metrics", "coverage"]);
 }
 
 // ── Clap validation errors (exits before any network call) ──────────
@@ -275,70 +206,42 @@ fn test_wait_missing_required_task_id_arg() {
 #[test]
 fn test_url_flag_accepted() {
     // Exercises --url parsing in build_config(); exits immediately on missing --project
-    cli()
-        .args(["--url", "http://custom-server:9000", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--url", "http://custom-server:9000", "issues"]);
 }
 
 #[test]
 fn test_token_flag_accepted() {
     // Exercises --token parsing in build_config()
-    cli()
-        .args(["--token", "mytoken", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--token", "mytoken", "issues"]);
 }
 
 #[test]
 fn test_branch_flag_accepted() {
     // Exercises --branch parsing in build_config()
-    cli()
-        .args(["--branch", "develop", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--branch", "develop", "issues"]);
 }
 
 #[test]
 fn test_json_flag_accepted() {
     // Exercises --json parsing path
-    cli()
-        .args(["--json", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--json", "issues"]);
 }
 
 #[test]
 fn test_timeout_flag_accepted() {
     // Exercises --timeout parsing in build_config()
-    cli()
-        .args(["--timeout", "60", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--timeout", "60", "issues"]);
 }
 
 #[test]
 fn test_verbose_flag_accepted() {
     // Exercises -v / --verbose flag parsing (init_tracing verbose=true path)
-    cli()
-        .args(["-v", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["-v", "issues"]);
 }
 
 #[test]
 fn test_verbose_long_flag_accepted() {
-    cli()
-        .args(["--verbose", "issues"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["--verbose", "issues"]);
 }
 
 // ── require_project() error path for all project-requiring commands ──
@@ -346,11 +249,7 @@ fn test_verbose_long_flag_accepted() {
 #[test]
 fn test_history_missing_project_no_project_flag() {
     // Exercises require_project() Err path for History command dispatch
-    cli()
-        .args(["history", "--metrics", "coverage"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["history", "--metrics", "coverage"]);
 }
 
 // ── Command argument parsing (exercises dispatch arms in main) ───────
@@ -358,99 +257,67 @@ fn test_history_missing_project_no_project_flag() {
 #[test]
 fn test_issues_with_all_filters_missing_project() {
     // Exercises the Issues command arm's argument parsing in main
-    cli()
-        .args([
-            "issues",
-            "--severity", "CRITICAL",
-            "--status", "OPEN",
-            "--rule", "rust:S1",
-            "--language", "rust",
-            "--limit", "10",
-            "--created-after", "2025-01-01",
-            "--created-before", "2025-12-31",
-            "--author", "alice",
-            "--assignee", "bob",
-            "--tags", "security",
-            "--resolution", "FALSE-POSITIVE",
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&[
+        "issues",
+        "--severity", "CRITICAL",
+        "--status", "OPEN",
+        "--rule", "rust:S1",
+        "--language", "rust",
+        "--limit", "10",
+        "--created-after", "2025-01-01",
+        "--created-before", "2025-12-31",
+        "--author", "alice",
+        "--assignee", "bob",
+        "--tags", "security",
+        "--resolution", "FALSE-POSITIVE",
+    ]);
 }
 
 #[test]
 fn test_measures_with_metrics_missing_project() {
     // Exercises Measures command arm with --metrics flag
-    cli()
-        .args(["measures", "--metrics", "coverage,bugs"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["measures", "--metrics", "coverage,bugs"]);
 }
 
 #[test]
 fn test_coverage_with_min_coverage_missing_project() {
     // Exercises Coverage command arm with --min-coverage flag
-    cli()
-        .args(["coverage", "--min-coverage", "80"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["coverage", "--min-coverage", "80"]);
 }
 
 #[test]
 fn test_coverage_with_sort_missing_project() {
     // Exercises Coverage command arm with --sort flag
-    cli()
-        .args(["coverage", "--sort", "uncovered"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["coverage", "--sort", "uncovered"]);
 }
 
 #[test]
 fn test_duplications_with_details_missing_project() {
     // Exercises Duplications command arm with --details flag
-    cli()
-        .args(["duplications", "--details"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["duplications", "--details"]);
 }
 
 #[test]
 fn test_hotspots_with_status_missing_project() {
     // Exercises Hotspots command arm with --status flag
-    cli()
-        .args(["hotspots", "--status", "REVIEWED"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["hotspots", "--status", "REVIEWED"]);
 }
 
 #[test]
 fn test_quality_gate_with_fail_on_error_missing_project() {
     // Exercises QualityGate command arm with --fail-on-error flag
-    cli()
-        .args(["quality-gate", "--fail-on-error"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&["quality-gate", "--fail-on-error"]);
 }
 
 #[test]
 fn test_history_with_from_to_missing_project() {
     // Exercises History command arm with --from and --to flags
-    cli()
-        .args([
-            "history",
-            "--metrics", "coverage",
-            "--from", "2025-01-01",
-            "--to", "2025-12-31",
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Project key is required"));
+    assert_missing_project(&[
+        "history",
+        "--metrics", "coverage",
+        "--from", "2025-01-01",
+        "--to", "2025-12-31",
+    ]);
 }
 
 #[test]
