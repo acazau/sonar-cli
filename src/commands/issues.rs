@@ -103,23 +103,6 @@ mod tests {
         serde_json::json!({"total": count, "issues": issues})
     }
 
-    fn default_params() -> IssuesCommandParams<'static> {
-        IssuesCommandParams {
-            min_severity: None,
-            issue_type: None,
-            limit: None,
-            statuses: None,
-            resolutions: None,
-            tags: None,
-            rules: None,
-            created_after: None,
-            created_before: None,
-            author: None,
-            assignees: None,
-            languages: None,
-        }
-    }
-
     #[tokio::test]
     async fn test_run_issues_success() {
         let mock_server = match try_mock_server().await {
@@ -133,13 +116,13 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let params = default_params();
-        let exit = run(config, "my-proj", &params, false).await;
+        let params = IssueSearchParams::default();
+        let exit = run(config, "my-proj", &params, None, false).await;
         assert_eq!(exit, 0);
     }
 
     #[tokio::test]
-    async fn test_run_issues_with_severity_filter() {
+    async fn test_run_issues_with_severity_and_type() {
         let mock_server = match try_mock_server().await {
             Some(s) => s,
             None => return,
@@ -150,13 +133,14 @@ mod tests {
             .mount(&mock_server)
             .await;
 
+        let severities = build_severity_filter(Some("CRITICAL"));
         let config = SonarQubeConfig::new(mock_server.uri());
-        let params = IssuesCommandParams {
-            min_severity: Some("CRITICAL"),
-            issue_type: Some("CODE_SMELL"),
-            ..default_params()
+        let params = IssueSearchParams {
+            severities: severities.as_deref(),
+            types: Some("CODE_SMELL"),
+            ..IssueSearchParams::default()
         };
-        let exit = run(config, "my-proj", &params, true).await;
+        let exit = run(config, "my-proj", &params, None, true).await;
         assert_eq!(exit, 0);
     }
 
@@ -173,11 +157,8 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let params = IssuesCommandParams {
-            limit: Some(2),
-            ..default_params()
-        };
-        let exit = run(config, "my-proj", &params, false).await;
+        let params = IssueSearchParams::default();
+        let exit = run(config, "my-proj", &params, Some(2), false).await;
         assert_eq!(exit, 0);
     }
 
@@ -194,8 +175,8 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let params = default_params();
-        let exit = run(config, "my-proj", &params, false).await;
+        let params = IssueSearchParams::default();
+        let exit = run(config, "my-proj", &params, None, false).await;
         assert_eq!(exit, 1);
     }
 
@@ -212,8 +193,32 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let params = default_params();
-        let exit = run(config, "my-proj", &params, true).await;
+        let params = IssueSearchParams::default();
+        let exit = run(config, "my-proj", &params, None, true).await;
         assert_eq!(exit, 0);
+    }
+
+    #[test]
+    fn test_build_severity_filter_none() {
+        assert_eq!(build_severity_filter(None), None);
+    }
+
+    #[test]
+    fn test_build_severity_filter_critical() {
+        let result = build_severity_filter(Some("CRITICAL"));
+        assert!(result.is_some());
+        let s = result.unwrap();
+        assert!(s.contains("CRITICAL"));
+        assert!(s.contains("BLOCKER"));
+        assert!(!s.contains("MAJOR"));
+    }
+
+    #[test]
+    fn test_build_severity_filter_info() {
+        let result = build_severity_filter(Some("INFO"));
+        assert!(result.is_some());
+        let s = result.unwrap();
+        assert!(s.contains("INFO"));
+        assert!(s.contains("BLOCKER"));
     }
 }
