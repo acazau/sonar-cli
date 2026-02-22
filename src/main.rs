@@ -346,28 +346,27 @@ impl Cli {
     }
 }
 
+/// Initialise the tracing subscriber.
+///
+/// When `verbose` is true, the default log level is `debug`; otherwise `warn`.
+/// Both cases respect the `RUST_LOG` environment variable.
+fn init_tracing(verbose: bool) {
+    let default_filter = if verbose { "sonar_cli=debug" } else { "sonar_cli=warn" };
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| default_filter.into()),
+        )
+        .with_target(false)
+        .init();
+}
+
 #[tokio::main]
 async fn main() {
     let _ = dotenvy::dotenv();
     let cli = Cli::parse();
 
-    if cli.verbose {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "sonar_cli=debug".into()),
-            )
-            .with_target(false)
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| "sonar_cli=warn".into()),
-            )
-            .with_target(false)
-            .init();
-    }
+    init_tracing(cli.verbose);
 
     let config = cli.build_config();
 
