@@ -68,3 +68,152 @@ pub async fn run(
     output::print_issues(&all_issues, project, json);
     0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    async fn try_mock_server() -> Option<MockServer> {
+        let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+            Ok(l) => l,
+            Err(_) => return None,
+        };
+        Some(MockServer::builder().listener(listener).start().await)
+    }
+
+    fn issues_body(count: usize) -> serde_json::Value {
+        let issues: Vec<serde_json::Value> = (0..count)
+            .map(|i| {
+                serde_json::json!({
+                    "key": format!("issue-{i}"),
+                    "rule": "rust:S3776",
+                    "severity": "CRITICAL",
+                    "component": "my-proj:src/main.rs",
+                    "project": "my-proj",
+                    "line": i + 1,
+                    "message": "Cognitive complexity too high",
+                    "type": "CODE_SMELL",
+                    "status": "OPEN",
+                    "tags": []
+                })
+            })
+            .collect();
+        serde_json::json!({"total": count, "issues": issues})
+    }
+
+    fn default_params() -> IssuesCommandParams<'static> {
+        IssuesCommandParams {
+            min_severity: None,
+            issue_type: None,
+            limit: None,
+            statuses: None,
+            resolutions: None,
+            tags: None,
+            rules: None,
+            created_after: None,
+            created_before: None,
+            author: None,
+            assignees: None,
+            languages: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_run_issues_success() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issues_body(2)))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = default_params();
+        let exit = run(config, "my-proj", &params, false).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_issues_with_severity_filter() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issues_body(1)))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = IssuesCommandParams {
+            min_severity: Some("CRITICAL"),
+            issue_type: Some("CODE_SMELL"),
+            ..default_params()
+        };
+        let exit = run(config, "my-proj", &params, true).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_issues_with_limit() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issues_body(5)))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = IssuesCommandParams {
+            limit: Some(2),
+            ..default_params()
+        };
+        let exit = run(config, "my-proj", &params, false).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_issues_api_error() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = default_params();
+        let exit = run(config, "my-proj", &params, false).await;
+        assert_eq!(exit, 1);
+    }
+
+    #[tokio::test]
+    async fn test_run_issues_empty() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(issues_body(0)))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = default_params();
+        let exit = run(config, "my-proj", &params, true).await;
+        assert_eq!(exit, 0);
+    }
+}

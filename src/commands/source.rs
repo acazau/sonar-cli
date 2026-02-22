@@ -48,3 +48,90 @@ pub async fn run(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    async fn try_mock_server() -> Option<MockServer> {
+        let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+            Ok(l) => l,
+            Err(_) => return None,
+        };
+        Some(MockServer::builder().listener(listener).start().await)
+    }
+
+    #[tokio::test]
+    async fn test_run_source_raw() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/sources/raw"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("fn main() {}\n"))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj:src/main.rs", None, None, false).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_source_raw_json() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/sources/raw"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("fn main() {}\n"))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj:src/main.rs", None, None, true).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_source_show_with_range() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/sources/show"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "sources": [[1, "fn main() {}"], [2, "    println!(\"hi\");"], [3, "}"]]
+                })),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj:src/main.rs", Some(1), Some(3), false).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_source_api_error() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/sources/raw"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj:src/main.rs", None, None, false).await;
+        assert_eq!(exit, 1);
+    }
+}
