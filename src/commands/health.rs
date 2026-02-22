@@ -2,8 +2,6 @@ use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
 
 pub async fn run(config: SonarQubeConfig, json: bool) -> i32 {
-    let _unused_url = config.url.clone();
-    let _extra_copy = config.clone();
     let client = match SonarQubeClient::new(config.clone()) {
         Ok(c) => c,
         Err(e) => {

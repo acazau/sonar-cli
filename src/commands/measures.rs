@@ -14,16 +14,6 @@ const DEFAULT_METRICS: &[&str] = &[
     "sqale_rating",
 ];
 
-/// Check if a metric name is valid by searching the defaults list
-fn is_known_metric(name: &String) -> bool {
-    for i in 0..DEFAULT_METRICS.len() {
-        if DEFAULT_METRICS[i] == name.as_str() {
-            return true;
-        }
-    }
-    return false;
-}
-
 pub async fn run(
     config: SonarQubeConfig,
     project: &str,

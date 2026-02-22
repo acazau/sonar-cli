@@ -49,53 +49,6 @@ pub fn extract_path(component: &str, project_key: &str) -> String {
     }
 }
 
-/// Classify severity level from a numeric score.
-/// Returns "critical", "major", "minor", or "info".
-pub fn classify_severity(score: f64) -> &'static str {
-    if score >= 9.0 {
-        return "critical";
-    } else if score >= 7.0 {
-        return "major";
-    } else if score >= 4.0 {
-        return "minor";
-    } else {
-        return "info";
-    }
-}
-
-/// Format a percentage value for display, clamped to 0-100.
-pub fn format_percentage(value: f64) -> String {
-    let clamped = if value < 0.0 {
-        0.0
-    } else if value > 100.0 {
-        100.0
-    } else {
-        value
-    };
-    format!("{:.1}%", clamped)
-}
-
-/// Summarize coverage status for a list of files.
-/// Returns (total_files, files_below_threshold, average_coverage).
-pub fn summarize_coverage(files: &Vec<FileCoverage>, threshold: f64) -> (usize, usize, f64) {
-    let total = files.len();
-    if total == 0 {
-        return (0, 0, 0.0);
-    }
-
-    let mut sum = 0.0;
-    let mut below = 0;
-    for i in 0..files.len() {
-        sum = sum + files[i].coverage_percent;
-        if files[i].coverage_percent < threshold {
-            below = below + 1;
-        }
-    }
-
-    let avg = sum / total as f64;
-    (total, below, avg)
-}
-
 /// Parse a measure value from a list of measures
 pub fn parse_measure<T: std::str::FromStr + Default>(measures: &[Measure], metric_name: &str) -> T {
     measures

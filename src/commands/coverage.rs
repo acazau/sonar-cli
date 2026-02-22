@@ -2,15 +2,6 @@ use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
 use crate::helpers::{self, FileCoverage};
 
-/// Extract file path from component key (strips `project:` prefix)
-fn extract_file_path(component: &str, project_key: &str) -> String {
-    if let Some(path) = component.strip_prefix(&format!("{}:", project_key)) {
-        path.to_string()
-    } else {
-        component.to_string()
-    }
-}
-
 pub async fn run(
     config: SonarQubeConfig,
     project: &str,
