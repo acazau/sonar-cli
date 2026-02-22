@@ -70,7 +70,12 @@ Use the `/report` slash command to generate the full quality report.
 Record the quality gate status (PASSED or FAILED).
 
 - **Default mode (no `--full`)**: If the quality gate **passed**, report success and stop. If it **failed**, proceed to Phase 2.
-- **`--full` mode**: Always proceed to Phase 2 if there are **any** open issues (code smells, duplications, or coverage gaps below 70%), regardless of whether the quality gate passed or failed. Only stop here if there are truly zero issues to fix.
+- **`--full` mode**: You MUST check all three categories independently before deciding to stop:
+  1. Run `cargo run -- issues --json 2>/dev/null` — are there any bugs, vulnerabilities, or code smells?
+  2. Run `cargo run -- duplications --details --json 2>/dev/null` — are there any files with duplicated blocks (duplication density > 0%)?
+  3. Run `cargo run -- coverage --json 2>/dev/null` — are there any files below 70% coverage?
+
+  If **any** of the three checks finds work to do, proceed to Phase 2. Only stop here if ALL three checks return zero actionable items. The quality gate status is irrelevant in `--full` mode — duplications and coverage gaps exist outside the SonarQube issue tracker and must be checked separately.
 
 ## Phase 2: Triage & Spawn Fixers
 
@@ -90,7 +95,7 @@ cargo run -- coverage --json 2>/dev/null
 
 Group issues into three categories:
 
-1. **Duplications**: Files with duplicate code blocks → for `fix-duplications`
+1. **Duplications**: Files with **any** duplicated blocks (duplication density > 0%) → for `fix-duplications`. This includes test files like `tests/cli.rs`. Check the `duplications --details --json` output for `duplicated_blocks` or `duplicated_lines_density` fields.
 2. **Code issues**: Files with bugs, vulnerabilities, code smells → for `fix-issues`
 3. **Coverage gaps**: Files below 70% coverage → for `fix-coverage`
 
@@ -158,7 +163,7 @@ After all merges complete, go back to Phase 1 (Step 1) and re-run the full pipel
 ### Step 13: Iteration Check
 
 - **Default mode**: If the quality gate **passes** → proceed to shutdown. If it **fails** AND iteration < 3 → go back to Phase 2. If iteration 3 → proceed to shutdown and report remaining issues.
-- **`--full` mode**: If there are **zero open issues** remaining → proceed to shutdown. If open issues remain AND iteration < 3 → go back to Phase 2. If iteration 3 → proceed to shutdown and report remaining issues.
+- **`--full` mode**: Re-run the same three checks from Step 6 (issues, duplications, coverage). If ALL three return zero actionable items → proceed to shutdown. If any check still finds work AND iteration < 3 → go back to Phase 2. If iteration 3 → proceed to shutdown and report remaining issues.
 
 ## Phase 4: Shutdown
 
