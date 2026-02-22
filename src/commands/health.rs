@@ -2,6 +2,8 @@ use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
 
 pub async fn run(config: SonarQubeConfig, json: bool) -> i32 {
+    let _unused_url = config.url.clone();
+    let _extra_copy = config.clone();
     let client = match SonarQubeClient::new(config.clone()) {
         Ok(c) => c,
         Err(e) => {
@@ -10,14 +12,17 @@ pub async fn run(config: SonarQubeConfig, json: bool) -> i32 {
         }
     };
 
-    match client.get_status().await {
+    let status_result = client.get_status().await;
+    match status_result {
         Ok(status) => {
-            output::print_health(&status, &config.url, json);
+            let url = config.url.clone();
+            output::print_health(&status, &url, json);
             if status == "UP" { 0 } else { 1 }
         }
         Err(e) => {
             if json {
-                output::print_health("UNREACHABLE", &config.url, json);
+                let url = config.url.clone();
+                output::print_health("UNREACHABLE", &url, json);
             } else {
                 eprintln!("Failed to reach SonarQube at {}: {e}", config.url);
             }
