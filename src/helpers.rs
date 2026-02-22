@@ -331,4 +331,145 @@ mod tests {
         assert_eq!(data.duplications[0].file, "src/client.rs");
         assert_eq!(data.duplications[0].duplicated_lines, 10);
     }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_no_coverage_gap_high_coverage() {
+        // Exercises convert_to_coverage returning None: coverage >= 80 and uncovered_lines == 0
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        let tree_response = serde_json::json!({
+            "paging": {"total": 1},
+            "components": [
+                {
+                    "key": "my-proj:src/perfect.rs",
+                    "path": "src/perfect.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "0"},
+                        {"metric": "duplicated_lines_density", "value": "0.0"},
+                        {"metric": "duplicated_blocks", "value": "0"},
+                        {"metric": "coverage", "value": "95.0"},
+                        {"metric": "uncovered_lines", "value": "0"},
+                        {"metric": "lines_to_cover", "value": "100"}
+                    ]
+                }
+            ]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree_response))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        // No gap: coverage >= 80.0 and uncovered_lines == 0 → has_gap = false → None
+        assert!(data.coverage_gaps.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_duplication_with_blocks() {
+        // Exercises extract_duplication_blocks with actual cross-file duplication data
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        let tree_response = serde_json::json!({
+            "paging": {"total": 1},
+            "components": [
+                {
+                    "key": "my-proj:src/dup.rs",
+                    "path": "src/dup.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "20"},
+                        {"metric": "duplicated_lines_density", "value": "10.0"},
+                        {"metric": "duplicated_blocks", "value": "1"},
+                        {"metric": "coverage", "value": "70.0"},
+                        {"metric": "uncovered_lines", "value": "5"},
+                        {"metric": "lines_to_cover", "value": "50"}
+                    ]
+                }
+            ]
+        });
+
+        // Duplication block: dup.rs lines 10-29 duplicated in other.rs lines 50-69
+        let dups_response = serde_json::json!({
+            "duplications": [
+                {
+                    "blocks": [
+                        {"_ref": "1", "from": 10, "size": 20},
+                        {"_ref": "2", "from": 50, "size": 20}
+                    ]
+                }
+            ],
+            "files": {
+                "1": {"key": "my-proj:src/dup.rs", "name": "dup.rs"},
+                "2": {"key": "my-proj:src/other.rs", "name": "other.rs"}
+            }
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree_response))
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/duplications/show"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dups_response))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.duplications.len(), 1);
+        assert_eq!(data.duplications[0].blocks.len(), 1);
+        assert_eq!(data.duplications[0].blocks[0].duplicated_in, "other.rs");
+        assert_eq!(data.duplications[0].blocks[0].from_line, 10);
+        assert_eq!(data.duplications[0].blocks[0].duplicated_in_line, 50);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_api_error_uses_default() {
+        // Exercises unwrap_or_default() in fetch_extended_data when component_tree returns 500
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        // Both get_files_with_duplications and get_files_coverage use unwrap_or_default()
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert!(data.duplications.is_empty());
+        assert!(data.coverage_gaps.is_empty());
+    }
+
+    #[test]
+    fn test_parse_measure_coverage_as_float_exact() {
+        // Additional coverage for parse_measure to exercise found-and-parsed path
+        let measures = vec![
+            Measure { metric: "lines_to_cover".to_string(), value: Some("500".to_string()), period: None },
+        ];
+        let val: u32 = parse_measure(&measures, "lines_to_cover");
+        assert_eq!(val, 500);
+    }
 }
