@@ -1,9 +1,12 @@
 pub mod coverage;
 pub mod duplications;
 pub mod health;
+pub mod history;
 pub mod hotspots;
 pub mod issues;
 pub mod measures;
+pub mod projects;
 pub mod quality_gate;
-pub mod scan;
+pub mod rules;
+pub mod source;
 pub mod wait;

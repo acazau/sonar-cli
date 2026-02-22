@@ -1,0 +1,33 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo run:*)",
+      "Bash(cargo llvm-cov:*)",
+      "Bash(docker info:*)",
+      "Bash(docker run:*)",
+      "Bash(./scripts/scan.sh:*)",
+      "Bash(docker compose:*)",
+      "Bash(git branch:*)",
+      "Bash(git stash:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git merge:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [
+      "Read(path:.env)",
+      "Read(path:**/.env)",
+      "Read(path:.env.*)",
+      "Read(path:**/.env.*)"
+    ]
+  }
+}

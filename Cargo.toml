@@ -2,7 +2,7 @@
 name = "sonar-cli"
 version = "0.1.0"
 edition = "2021"
-description = "Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and run scans"
+description = "Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and more"
 license = "MIT"
 
 [[bin]]
@@ -19,7 +19,6 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
-uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 wiremock = "0.6"

@@ -8,6 +8,32 @@ use thiserror::Error;
 
 use crate::types::*;
 
+/// Parameters for the issue search API
+#[derive(Debug, Default)]
+pub struct IssueSearchParams<'a> {
+    pub severities: Option<&'a str>,
+    pub types: Option<&'a str>,
+    pub statuses: Option<&'a str>,
+    pub resolutions: Option<&'a str>,
+    pub tags: Option<&'a str>,
+    pub rules: Option<&'a str>,
+    pub created_after: Option<&'a str>,
+    pub created_before: Option<&'a str>,
+    pub author: Option<&'a str>,
+    pub assignees: Option<&'a str>,
+    pub languages: Option<&'a str>,
+}
+
+/// Parameters for the rules search API
+#[derive(Debug, Default)]
+pub struct RuleSearchParams<'a> {
+    pub search: Option<&'a str>,
+    pub language: Option<&'a str>,
+    pub severity: Option<&'a str>,
+    pub rule_type: Option<&'a str>,
+    pub status: Option<&'a str>,
+}
+
 /// Errors from the SonarQube client
 #[derive(Debug, Error)]
 pub enum SonarQubeError {
@@ -19,9 +45,6 @@ pub enum SonarQubeError {
 
     #[error("deserialization failed: {0}")]
     Deserialize(String),
-
-    #[error("configuration error: {0}")]
-    Config(String),
 
     #[error("timeout waiting for analysis")]
     Timeout,
@@ -85,24 +108,6 @@ impl SonarQubeConfig {
         self
     }
 
-    /// Create config from environment variables
-    pub fn from_env() -> Self {
-        let url = std::env::var("SONAR_HOST_URL")
-            .or_else(|_| std::env::var("SONAR_URL"))
-            .unwrap_or_else(|_| "http://localhost:9000".to_string());
-
-        let token = std::env::var("SONAR_TOKEN").ok();
-        let project_key = std::env::var("SONAR_PROJECT_KEY").ok();
-        let branch = std::env::var("SONAR_BRANCH").ok();
-
-        Self {
-            url,
-            token,
-            project_key,
-            branch,
-            ..Default::default()
-        }
-    }
 }
 
 /// SonarQube API client
@@ -120,16 +125,6 @@ impl SonarQubeClient {
             .map_err(|e| SonarQubeError::Http(e.to_string()))?;
 
         Ok(Self { config, http })
-    }
-
-    /// Get the base URL
-    pub fn url(&self) -> &str {
-        &self.config.url
-    }
-
-    /// Get the project key
-    pub fn project_key(&self) -> Option<&str> {
-        self.config.project_key.as_deref()
     }
 
     /// Returns `&branch=<name>` when a branch is configured, empty string otherwise
@@ -175,76 +170,55 @@ impl SonarQubeClient {
             .map_err(|e| SonarQubeError::Deserialize(e.to_string()))
     }
 
-    /// Search for issues
-    pub async fn search_issues(
+    /// Search for issues with full parameter support
+    pub async fn search_issues_with_params(
         &self,
         project_key: &str,
         page: usize,
         page_size: usize,
+        params: &IssueSearchParams<'_>,
     ) -> Result<IssuesResponse, SonarQubeError> {
-        let url = format!(
-            "{}/api/issues/search?projectKeys={}&p={}&ps={}&statuses=OPEN,CONFIRMED,REOPENED{}",
-            self.config.url,
-            project_key,
-            page,
-            page_size,
-            self.branch_param()
-        );
-        self.get_json(&url).await
-    }
-
-    /// Search for issues with optional severity and type filters
-    pub async fn search_issues_filtered(
-        &self,
-        project_key: &str,
-        page: usize,
-        page_size: usize,
-        severities: Option<&str>,
-        types: Option<&str>,
-    ) -> Result<IssuesResponse, SonarQubeError> {
+        let statuses = params.statuses.unwrap_or("OPEN,CONFIRMED,REOPENED");
         let mut url = format!(
-            "{}/api/issues/search?projectKeys={}&p={}&ps={}&statuses=OPEN,CONFIRMED,REOPENED{}",
+            "{}/api/issues/search?projectKeys={}&p={}&ps={}&statuses={}{}",
             self.config.url,
             project_key,
             page,
             page_size,
+            statuses,
             self.branch_param()
         );
-        if let Some(sev) = severities {
+        if let Some(sev) = params.severities {
             url.push_str(&format!("&severities={}", sev));
         }
-        if let Some(t) = types {
+        if let Some(t) = params.types {
             url.push_str(&format!("&types={}", t));
         }
-        self.get_json(&url).await
-    }
-
-    /// Get all issues for a project (handles pagination)
-    pub async fn get_all_issues(
-        &self,
-        project_key: &str,
-    ) -> Result<Vec<SonarIssue>, SonarQubeError> {
-        let mut all_issues = Vec::new();
-        let mut page = 1;
-        let page_size = 100;
-
-        loop {
-            let response = self.search_issues(project_key, page, page_size).await?;
-            let issues_count = response.issues.len();
-            let total = response.total;
-            all_issues.extend(response.issues);
-
-            if all_issues.len() >= total || issues_count < page_size {
-                break;
-            }
-            page += 1;
-
-            if page > 100 {
-                break;
-            }
+        if let Some(r) = params.resolutions {
+            url.push_str(&format!("&resolutions={}", r));
         }
-
-        Ok(all_issues)
+        if let Some(t) = params.tags {
+            url.push_str(&format!("&tags={}", t));
+        }
+        if let Some(r) = params.rules {
+            url.push_str(&format!("&rules={}", r));
+        }
+        if let Some(d) = params.created_after {
+            url.push_str(&format!("&createdAfter={}", d));
+        }
+        if let Some(d) = params.created_before {
+            url.push_str(&format!("&createdBefore={}", d));
+        }
+        if let Some(a) = params.author {
+            url.push_str(&format!("&author={}", a));
+        }
+        if let Some(a) = params.assignees {
+            url.push_str(&format!("&assignees={}", a));
+        }
+        if let Some(l) = params.languages {
+            url.push_str(&format!("&languages={}", l));
+        }
+        self.get_json(&url).await
     }
 
     /// Get quality gate status
@@ -489,23 +463,205 @@ impl SonarQubeClient {
         Ok(all_hotspots)
     }
 
-    /// Check server health — returns true only when status is "UP"
-    pub async fn health_check(&self) -> Result<bool, SonarQubeError> {
-        let url = format!("{}/api/system/status", self.config.url);
+    /// Search for projects/components
+    pub async fn search_projects(
+        &self,
+        search: Option<&str>,
+        qualifier: Option<&str>,
+        page: usize,
+        page_size: usize,
+    ) -> Result<ProjectsSearchResponse, SonarQubeError> {
+        let q = qualifier.unwrap_or("TRK");
+        let mut url = format!(
+            "{}/api/components/search?qualifiers={}&p={}&ps={}",
+            self.config.url, q, page, page_size
+        );
+        if let Some(s) = search {
+            url.push_str(&format!("&q={}", s));
+        }
+        self.get_json(&url).await
+    }
 
-        let response = self
-            .http
+    /// Get all projects (handles pagination)
+    pub async fn get_all_projects(
+        &self,
+        search: Option<&str>,
+        qualifier: Option<&str>,
+    ) -> Result<Vec<ProjectInfo>, SonarQubeError> {
+        let mut all = Vec::new();
+        let mut page = 1;
+        let page_size = 100;
+
+        loop {
+            let response = self.search_projects(search, qualifier, page, page_size).await?;
+            let count = response.components.len();
+            let total = response.paging.total;
+            all.extend(response.components);
+
+            if all.len() >= total || count < page_size {
+                break;
+            }
+            page += 1;
+            if page > 100 {
+                break;
+            }
+        }
+
+        Ok(all)
+    }
+
+    /// Get measures history for a project
+    pub async fn get_measures_history(
+        &self,
+        project_key: &str,
+        metrics: &str,
+        from: Option<&str>,
+        to: Option<&str>,
+        page: usize,
+        page_size: usize,
+    ) -> Result<MeasuresHistoryResponse, SonarQubeError> {
+        let mut url = format!(
+            "{}/api/measures/search_history?component={}&metrics={}&p={}&ps={}{}",
+            self.config.url, project_key, metrics, page, page_size, self.branch_param()
+        );
+        if let Some(f) = from {
+            url.push_str(&format!("&from={}", f));
+        }
+        if let Some(t) = to {
+            url.push_str(&format!("&to={}", t));
+        }
+        self.get_json(&url).await
+    }
+
+    /// Search for rules
+    pub async fn search_rules(
+        &self,
+        params: &RuleSearchParams<'_>,
+        page: usize,
+        page_size: usize,
+    ) -> Result<RulesSearchResponse, SonarQubeError> {
+        let mut url = format!(
+            "{}/api/rules/search?p={}&ps={}",
+            self.config.url, page, page_size
+        );
+        if let Some(q) = params.search {
+            url.push_str(&format!("&q={}", q));
+        }
+        if let Some(l) = params.language {
+            url.push_str(&format!("&languages={}", l));
+        }
+        if let Some(s) = params.severity {
+            url.push_str(&format!("&severities={}", s));
+        }
+        if let Some(t) = params.rule_type {
+            url.push_str(&format!("&types={}", t));
+        }
+        if let Some(s) = params.status {
+            url.push_str(&format!("&statuses={}", s));
+        }
+        self.get_json(&url).await
+    }
+
+    /// Get all rules matching filters (handles pagination)
+    pub async fn get_all_rules(
+        &self,
+        params: &RuleSearchParams<'_>,
+    ) -> Result<Vec<RuleInfo>, SonarQubeError> {
+        let mut all = Vec::new();
+        let mut page = 1;
+        let page_size = 100;
+
+        loop {
+            let response = self
+                .search_rules(params, page, page_size)
+                .await?;
+            let count = response.rules.len();
+            let total = response.total;
+            all.extend(response.rules);
+
+            if all.len() >= total || count < page_size {
+                break;
+            }
+            page += 1;
+            if page > 100 {
+                break;
+            }
+        }
+
+        Ok(all)
+    }
+
+    /// Get raw source code for a component
+    pub async fn get_source_raw(
+        &self,
+        component: &str,
+    ) -> Result<String, SonarQubeError> {
+        let url = format!(
+            "{}/api/sources/raw?key={}{}",
+            self.config.url, component, self.branch_param()
+        );
+        self.get(&url)
+            .await?
+            .text()
+            .await
+            .map_err(|e| SonarQubeError::Http(e.to_string()))
+    }
+
+    /// Get source code with line range using /api/sources/show
+    pub async fn get_source_show(
+        &self,
+        component: &str,
+        from: Option<usize>,
+        to: Option<usize>,
+    ) -> Result<Vec<SourceLine>, SonarQubeError> {
+        let mut url = format!(
+            "{}/api/sources/show?key={}{}",
+            self.config.url, component, self.branch_param()
+        );
+        if let Some(f) = from {
+            url.push_str(&format!("&from={}", f));
+        }
+        if let Some(t) = to {
+            url.push_str(&format!("&to={}", t));
+        }
+        let body = self
             .get(&url)
-            .send()
+            .await?
+            .text()
             .await
             .map_err(|e| SonarQubeError::Http(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Ok(false);
+        // /api/sources/show returns {"sources": [[lineNum, "code"], ...]}
+        let value: serde_json::Value =
+            serde_json::from_str(&body).map_err(|e| SonarQubeError::Deserialize(e.to_string()))?;
+
+        let sources = value
+            .get("sources")
+            .and_then(|s| s.as_array())
+            .ok_or_else(|| {
+                SonarQubeError::Deserialize("missing 'sources' array".to_string())
+            })?;
+
+        let mut lines = Vec::new();
+        for entry in sources {
+            if let Some(arr) = entry.as_array() {
+                let line_num = arr
+                    .first()
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                let code = arr
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                lines.push(SourceLine {
+                    line: line_num,
+                    code,
+                });
+            }
         }
 
-        let body = response.text().await.unwrap_or_default();
-        Ok(body.contains("\"UP\""))
+        Ok(lines)
     }
 
     /// Get the server status string (UP, STARTING, DOWN, etc.)
@@ -555,12 +711,6 @@ mod tests {
     }
 
     #[test]
-    fn test_config_from_env() {
-        let config = SonarQubeConfig::from_env();
-        assert!(!config.url.is_empty());
-    }
-
-    #[test]
     fn test_config_builder() {
         let config = SonarQubeConfig::new("http://sonar.example.com")
             .with_token("my-token")
@@ -582,7 +732,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_health_check_success() {
+    async fn test_get_status_up() {
         let mock_server = match try_mock_server().await {
             Some(s) => s,
             None => return,
@@ -603,11 +753,11 @@ mod tests {
             None => return,
         };
 
-        assert!(client.health_check().await.unwrap());
+        assert_eq!(client.get_status().await.unwrap(), "UP");
     }
 
     #[tokio::test]
-    async fn test_health_check_failure() {
+    async fn test_get_status_failure() {
         let mock_server = match try_mock_server().await {
             Some(s) => s,
             None => return,
@@ -625,7 +775,7 @@ mod tests {
             None => return,
         };
 
-        assert!(!client.health_check().await.unwrap_or(false));
+        assert!(client.get_status().await.is_err());
     }
 
     #[tokio::test]
@@ -662,7 +812,8 @@ mod tests {
             None => return,
         };
 
-        let result = client.search_issues("my-project", 1, 10).await;
+        let params = IssueSearchParams::default();
+        let result = client.search_issues_with_params("my-project", 1, 10, &params).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().issues.len(), 1);
     }
@@ -765,5 +916,252 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().status, "SUCCESS");
+    }
+
+    #[tokio::test]
+    async fn test_search_issues_with_params() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .and(query_param("projectKeys", "my-project"))
+            .and(query_param("statuses", "RESOLVED"))
+            .and(query_param("languages", "java"))
+            .and(query_param("createdAfter", "2025-01-01"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total": 1, "p": 1, "ps": 100,
+                "issues": [{
+                    "key": "issue-2",
+                    "component": "my-project:src/Main.java",
+                    "project": "my-project",
+                    "rule": "java:S1234",
+                    "severity": "CRITICAL",
+                    "message": "Resolved issue",
+                    "type": "BUG",
+                    "status": "RESOLVED",
+                    "tags": []
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let params = IssueSearchParams {
+            statuses: Some("RESOLVED"),
+            languages: Some("java"),
+            created_after: Some("2025-01-01"),
+            ..Default::default()
+        };
+
+        let result = client
+            .search_issues_with_params("my-project", 1, 100, &params)
+            .await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.issues.len(), 1);
+        assert_eq!(response.issues[0].status, "RESOLVED");
+    }
+
+    #[tokio::test]
+    async fn test_search_projects() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/components/search"))
+            .and(query_param("qualifiers", "TRK"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 2},
+                "components": [
+                    {"key": "proj-1", "name": "Project One"},
+                    {"key": "proj-2", "name": "Project Two", "visibility": "public",
+                     "lastAnalysisDate": "2025-06-01T12:00:00+0000"}
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_all_projects(None, None).await;
+        assert!(result.is_ok());
+        let projects = result.unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].key, "proj-1");
+        assert_eq!(projects[1].name, "Project Two");
+    }
+
+    #[tokio::test]
+    async fn test_get_measures_history() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/search_history"))
+            .and(query_param("component", "my-project"))
+            .and(query_param("metrics", "coverage,bugs"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 2},
+                "measures": [
+                    {
+                        "metric": "coverage",
+                        "history": [
+                            {"date": "2025-01-01T00:00:00+0000", "value": "80.0"},
+                            {"date": "2025-02-01T00:00:00+0000", "value": "85.0"}
+                        ]
+                    },
+                    {
+                        "metric": "bugs",
+                        "history": [
+                            {"date": "2025-01-01T00:00:00+0000", "value": "5"},
+                            {"date": "2025-02-01T00:00:00+0000", "value": "3"}
+                        ]
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client
+            .get_measures_history("my-project", "coverage,bugs", None, None, 1, 100)
+            .await;
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        assert_eq!(response.measures.len(), 2);
+        assert_eq!(response.measures[0].metric, "coverage");
+        assert_eq!(response.measures[0].history.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_search_rules() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/rules/search"))
+            .and(query_param("languages", "java"))
+            .and(query_param("severities", "CRITICAL"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total": 1, "p": 1, "ps": 100,
+                "rules": [{
+                    "key": "java:S1234",
+                    "name": "Null pointer check",
+                    "severity": "CRITICAL",
+                    "type": "BUG",
+                    "lang": "java",
+                    "status": "READY",
+                    "langName": "Java"
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let params = RuleSearchParams {
+            language: Some("java"),
+            severity: Some("CRITICAL"),
+            ..Default::default()
+        };
+        let result = client.get_all_rules(&params).await;
+        assert!(result.is_ok());
+        let rules = result.unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].key, "java:S1234");
+    }
+
+    #[tokio::test]
+    async fn test_get_source_raw() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/sources/raw"))
+            .and(query_param("key", "my-project:src/main.rs"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_string("fn main() {\n    println!(\"hello\");\n}\n"),
+            )
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_source_raw("my-project:src/main.rs").await;
+        assert!(result.is_ok());
+        let source = result.unwrap();
+        assert!(source.contains("fn main()"));
+    }
+
+    #[tokio::test]
+    async fn test_get_source_show() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/sources/show"))
+            .and(query_param("key", "my-project:src/main.rs"))
+            .and(query_param("from", "1"))
+            .and(query_param("to", "3"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "sources": [
+                    [1, "fn main() {"],
+                    [2, "    println!(\"hello\");"],
+                    [3, "}"]
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("test-token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client
+            .get_source_show("my-project:src/main.rs", Some(1), Some(3))
+            .await;
+        assert!(result.is_ok());
+        let lines = result.unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].line, 1);
+        assert_eq!(lines[0].code, "fn main() {");
+        assert_eq!(lines[2].line, 3);
     }
 }

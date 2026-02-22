@@ -45,23 +45,7 @@ pub struct TextRange {
 #[derive(Debug, Clone, Deserialize)]
 pub struct IssuesResponse {
     pub total: usize,
-    pub p: usize,
-    pub ps: usize,
     pub issues: Vec<SonarIssue>,
-    #[serde(default)]
-    pub components: Vec<SonarComponent>,
-}
-
-/// Component information
-#[derive(Debug, Clone, Deserialize)]
-pub struct SonarComponent {
-    pub key: String,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
-    pub qualifier: Option<String>,
 }
 
 /// Quality gate status
@@ -148,8 +132,6 @@ pub struct AnalysisTask {
 
 /// Task status values
 pub mod task_status {
-    pub const PENDING: &str = "PENDING";
-    pub const IN_PROGRESS: &str = "IN_PROGRESS";
     pub const SUCCESS: &str = "SUCCESS";
     pub const FAILED: &str = "FAILED";
     pub const CANCELED: &str = "CANCELED";
@@ -179,30 +161,16 @@ pub mod severity {
     }
 }
 
-/// Issue type values
-pub mod issue_type {
-    pub const CODE_SMELL: &str = "CODE_SMELL";
-    pub const BUG: &str = "BUG";
-    pub const VULNERABILITY: &str = "VULNERABILITY";
-    pub const SECURITY_HOTSPOT: &str = "SECURITY_HOTSPOT";
-}
-
 /// Response from component tree measures API
 #[derive(Debug, Clone, Deserialize)]
 pub struct ComponentTreeResponse {
     pub paging: Option<Paging>,
-    #[serde(rename = "baseComponent")]
-    pub base_component: Option<TreeComponent>,
     pub components: Vec<TreeComponent>,
 }
 
 /// Paging information
 #[derive(Debug, Clone, Deserialize)]
 pub struct Paging {
-    #[serde(rename = "pageIndex")]
-    pub page_index: usize,
-    #[serde(rename = "pageSize")]
-    pub page_size: usize,
     pub total: usize,
 }
 
@@ -250,9 +218,6 @@ pub struct DuplicationFile {
     pub key: String,
     #[serde(default)]
     pub name: Option<String>,
-    #[serde(rename = "projectName")]
-    #[serde(default)]
-    pub project_name: Option<String>,
 }
 
 /// Response from the security hotspots search API
@@ -260,8 +225,6 @@ pub struct DuplicationFile {
 pub struct HotspotsResponse {
     pub paging: Paging,
     pub hotspots: Vec<SecurityHotspot>,
-    #[serde(default)]
-    pub components: Vec<HotspotComponent>,
 }
 
 /// Security hotspot from the API
@@ -285,16 +248,80 @@ pub struct SecurityHotspot {
     pub text_range: Option<TextRange>,
 }
 
-/// Component information for hotspots
+/// Response from the components/search API (projects listing)
 #[derive(Debug, Clone, Deserialize)]
-pub struct HotspotComponent {
+pub struct ProjectsSearchResponse {
+    pub paging: Paging,
+    pub components: Vec<ProjectInfo>,
+}
+
+/// Project information from the components/search API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProjectInfo {
     pub key: String,
-    #[serde(default)]
-    pub path: Option<String>,
-    #[serde(default)]
-    pub name: Option<String>,
+    pub name: String,
     #[serde(default)]
     pub qualifier: Option<String>,
+    #[serde(default)]
+    pub visibility: Option<String>,
+    #[serde(rename = "lastAnalysisDate")]
+    #[serde(default)]
+    pub last_analysis_date: Option<String>,
+}
+
+/// Response from the measures/search_history API
+#[derive(Debug, Clone, Deserialize)]
+pub struct MeasuresHistoryResponse {
+    pub paging: Paging,
+    pub measures: Vec<MeasureHistory>,
+}
+
+/// A metric's history data
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MeasureHistory {
+    pub metric: String,
+    pub history: Vec<HistoryValue>,
+}
+
+/// A single historical data point
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct HistoryValue {
+    pub date: String,
+    #[serde(default)]
+    pub value: Option<String>,
+}
+
+/// Response from the rules/search API
+#[derive(Debug, Clone, Deserialize)]
+pub struct RulesSearchResponse {
+    pub total: usize,
+    pub rules: Vec<RuleInfo>,
+}
+
+/// Rule information from the rules/search API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RuleInfo {
+    pub key: String,
+    pub name: String,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(rename = "type")]
+    #[serde(default)]
+    pub rule_type: Option<String>,
+    #[serde(default)]
+    pub lang: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "langName")]
+    #[serde(default)]
+    pub lang_name: Option<String>,
+}
+
+/// A line of source code (constructed from API responses)
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceLine {
+    pub line: usize,
+    pub code: String,
 }
 
 #[cfg(test)]

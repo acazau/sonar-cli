@@ -1,13 +1,27 @@
-use crate::client::{SonarQubeClient, SonarQubeConfig};
+use crate::client::{IssueSearchParams, SonarQubeClient, SonarQubeConfig};
 use crate::output;
 use crate::types::severity;
+
+/// Parameters for the issues command
+pub struct IssuesCommandParams<'a> {
+    pub min_severity: Option<&'a str>,
+    pub issue_type: Option<&'a str>,
+    pub limit: Option<usize>,
+    pub statuses: Option<&'a str>,
+    pub resolutions: Option<&'a str>,
+    pub tags: Option<&'a str>,
+    pub rules: Option<&'a str>,
+    pub created_after: Option<&'a str>,
+    pub created_before: Option<&'a str>,
+    pub author: Option<&'a str>,
+    pub assignees: Option<&'a str>,
+    pub languages: Option<&'a str>,
+}
 
 pub async fn run(
     config: SonarQubeConfig,
     project: &str,
-    min_severity: Option<&str>,
-    issue_type: Option<&str>,
-    limit: Option<usize>,
+    params: &IssuesCommandParams<'_>,
     json: bool,
 ) -> i32 {
     let client = match SonarQubeClient::new(config) {
@@ -19,7 +33,7 @@ pub async fn run(
     };
 
     // Build severity filter: include this severity and all above it
-    let severities = min_severity.map(|sev| {
+    let severities = params.min_severity.map(|sev| {
         let min_ord = severity::ordinal(&sev.to_uppercase());
         severity::ALL
             .iter()
@@ -29,7 +43,21 @@ pub async fn run(
             .join(",")
     });
 
-    let types = issue_type.map(|t| t.to_uppercase());
+    let types = params.issue_type.map(|t| t.to_uppercase());
+
+    let search_params = IssueSearchParams {
+        severities: severities.as_deref(),
+        types: types.as_deref(),
+        statuses: params.statuses,
+        resolutions: params.resolutions,
+        tags: params.tags,
+        rules: params.rules,
+        created_after: params.created_after,
+        created_before: params.created_before,
+        author: params.author,
+        assignees: params.assignees,
+        languages: params.languages,
+    };
 
     // Fetch issues with filters
     let mut all_issues = Vec::new();
@@ -38,13 +66,7 @@ pub async fn run(
 
     loop {
         let result = client
-            .search_issues_filtered(
-                project,
-                page,
-                page_size,
-                severities.as_deref(),
-                types.as_deref(),
-            )
+            .search_issues_with_params(project, page, page_size, &search_params)
             .await;
 
         match result {
@@ -53,7 +75,7 @@ pub async fn run(
                 let total = response.total;
                 all_issues.extend(response.issues);
 
-                if let Some(lim) = limit {
+                if let Some(lim) = params.limit {
                     if all_issues.len() >= lim {
                         all_issues.truncate(lim);
                         break;

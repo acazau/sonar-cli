@@ -1,1 +1,9 @@
 /target
+coverage.xml
+coverage-sonar.xml
+*.profraw
+*.profdata
+*.lcov
+clippy-report.json
+.env
+.env.*

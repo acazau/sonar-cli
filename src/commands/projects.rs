@@ -1,11 +1,10 @@
 use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
-use crate::helpers;
 
 pub async fn run(
     config: SonarQubeConfig,
-    project: &str,
-    details: bool,
+    search: Option<&str>,
+    qualifier: Option<&str>,
     json: bool,
 ) -> i32 {
     let client = match SonarQubeClient::new(config) {
@@ -16,13 +15,13 @@ pub async fn run(
         }
     };
 
-    match helpers::fetch_extended_data(&client, project).await {
-        Ok(data) => {
-            output::print_duplications(&data.duplications, project, json, details);
+    match client.get_all_projects(search, qualifier).await {
+        Ok(projects) => {
+            output::print_projects(&projects, json);
             0
         }
         Err(e) => {
-            eprintln!("Failed to get duplications: {e}");
+            eprintln!("Failed to fetch projects: {e}");
             1
         }
     }

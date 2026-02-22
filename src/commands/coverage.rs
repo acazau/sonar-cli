@@ -1,6 +1,6 @@
 use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
-use crate::scanner::{self, FileCoverage};
+use crate::helpers::{self, FileCoverage};
 
 pub async fn run(
     config: SonarQubeConfig,
@@ -28,7 +28,7 @@ pub async fn run(
     let mut coverage: Vec<FileCoverage> = files
         .into_iter()
         .filter_map(|f| {
-            let path = scanner::extract_path(&f.key, project);
+            let path = helpers::extract_path(&f.key, project);
             let cov: f64 = f
                 .measures
                 .iter()
@@ -36,8 +36,8 @@ pub async fn run(
                 .and_then(|m| m.value.as_ref())
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(100.0);
-            let uncovered: u32 = scanner::parse_measure(&f.measures, "uncovered_lines");
-            let lines_to_cover: u32 = scanner::parse_measure(&f.measures, "lines_to_cover");
+            let uncovered: u32 = helpers::parse_measure(&f.measures, "uncovered_lines");
+            let lines_to_cover: u32 = helpers::parse_measure(&f.measures, "lines_to_cover");
 
             if let Some(min) = min_coverage {
                 if cov >= min {
