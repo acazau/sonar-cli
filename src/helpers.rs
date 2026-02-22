@@ -177,10 +177,158 @@ fn extract_duplication_blocks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Measure;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    use crate::client::{SonarQubeConfig, SonarQubeClient};
+
+    async fn try_mock_server() -> Option<MockServer> {
+        let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+            Ok(l) => l,
+            Err(_) => return None,
+        };
+        Some(MockServer::builder().listener(listener).start().await)
+    }
 
     #[test]
     fn test_extract_path() {
         assert_eq!(extract_path("my-project:src/main.rs", "my-project"), "src/main.rs");
         assert_eq!(extract_path("other:path.rs", "my-project"), "other:path.rs");
+    }
+
+    #[test]
+    fn test_extract_path_no_prefix() {
+        // Component key without colon separator returns unchanged
+        assert_eq!(extract_path("standalone", "my-project"), "standalone");
+    }
+
+    #[test]
+    fn test_parse_measure_found() {
+        let measures = vec![
+            Measure { metric: "coverage".to_string(), value: Some("85.5".to_string()), period: None },
+            Measure { metric: "bugs".to_string(), value: Some("3".to_string()), period: None },
+        ];
+        let coverage: f64 = parse_measure(&measures, "coverage");
+        assert!((coverage - 85.5).abs() < 0.001);
+        let bugs: u32 = parse_measure(&measures, "bugs");
+        assert_eq!(bugs, 3);
+    }
+
+    #[test]
+    fn test_parse_measure_not_found() {
+        let measures: Vec<Measure> = vec![];
+        let val: u32 = parse_measure(&measures, "nonexistent");
+        assert_eq!(val, 0);
+    }
+
+    #[test]
+    fn test_parse_measure_invalid_value() {
+        let measures = vec![
+            Measure { metric: "coverage".to_string(), value: Some("not-a-number".to_string()), period: None },
+        ];
+        let val: f64 = parse_measure(&measures, "coverage");
+        // Default for f64 is 0.0
+        assert_eq!(val, 0.0_f64);
+    }
+
+    #[test]
+    fn test_parse_measure_none_value() {
+        let measures = vec![
+            Measure { metric: "coverage".to_string(), value: None, period: None },
+        ];
+        let val: u32 = parse_measure(&measures, "coverage");
+        assert_eq!(val, 0);
+    }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_no_dups_no_gaps() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        let tree_response = serde_json::json!({
+            "paging": {"total": 1},
+            "components": [
+                {
+                    "key": "my-proj:src/main.rs",
+                    "path": "src/main.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "0"},
+                        {"metric": "duplicated_lines_density", "value": "0.0"},
+                        {"metric": "duplicated_blocks", "value": "0"},
+                        {"metric": "coverage", "value": "100.0"},
+                        {"metric": "uncovered_lines", "value": "0"},
+                        {"metric": "lines_to_cover", "value": "10"}
+                    ]
+                }
+            ]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree_response))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert!(data.duplications.is_empty());
+        assert!(data.coverage_gaps.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_with_dup() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        let tree_response = serde_json::json!({
+            "paging": {"total": 1},
+            "components": [
+                {
+                    "key": "my-proj:src/client.rs",
+                    "path": "src/client.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "10"},
+                        {"metric": "duplicated_lines_density", "value": "5.0"},
+                        {"metric": "duplicated_blocks", "value": "1"},
+                        {"metric": "coverage", "value": "60.0"},
+                        {"metric": "uncovered_lines", "value": "40"},
+                        {"metric": "lines_to_cover", "value": "100"}
+                    ]
+                }
+            ]
+        });
+
+        let dups_response = serde_json::json!({
+            "duplications": [],
+            "files": {}
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree_response))
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/duplications/show"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(dups_response))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.duplications.len(), 1);
+        assert_eq!(data.duplications[0].file, "src/client.rs");
+        assert_eq!(data.duplications[0].duplicated_lines, 10);
     }
 }
