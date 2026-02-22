@@ -1,6 +1,25 @@
 use crate::client::{SonarQubeClient, SonarQubeConfig};
 use crate::output;
-use crate::types::MeasureHistory;
+use crate::types::{MeasureHistory, MeasuresHistoryResponse};
+
+/// Merge page measures into the accumulated list.
+///
+/// On the first page the list is empty, so we take ownership directly.
+/// On subsequent pages we extend existing metric histories or push new ones.
+fn merge_page_measures(all: &mut Vec<MeasureHistory>, page: Vec<MeasureHistory>) {
+    for page_measure in page {
+        if let Some(existing) = all.iter_mut().find(|m| m.metric == page_measure.metric) {
+            existing.history.extend(page_measure.history);
+        } else {
+            all.push(page_measure);
+        }
+    }
+}
+
+/// Returns true when all pages have been fetched.
+fn pagination_done(response_total: usize, page: usize, page_size: usize) -> bool {
+    page * page_size >= response_total || page >= 100
+}
 
 pub async fn run(
     config: SonarQubeConfig,
@@ -18,50 +37,29 @@ pub async fn run(
         }
     };
 
-    // Paginate history data — the API paginates data points, not metrics.
-    // We need to merge history values across pages for each metric.
     let mut all_measures: Vec<MeasureHistory> = Vec::new();
     let mut page = 1;
     let page_size = 100;
 
     loop {
-        let result = client
+        let response: MeasuresHistoryResponse = match client
             .get_measures_history(project, metrics, from, to, page, page_size)
-            .await;
-
-        match result {
-            Ok(response) => {
-                if all_measures.is_empty() {
-                    all_measures = response.measures;
-                } else {
-                    // Merge history values from subsequent pages
-                    for page_measure in response.measures {
-                        if let Some(existing) = all_measures
-                            .iter_mut()
-                            .find(|m| m.metric == page_measure.metric)
-                        {
-                            existing.history.extend(page_measure.history);
-                        } else {
-                            all_measures.push(page_measure);
-                        }
-                    }
-                }
-
-                let total = response.paging.total;
-                let fetched = page * page_size;
-                if fetched >= total {
-                    break;
-                }
-                page += 1;
-                if page > 100 {
-                    break;
-                }
-            }
+            .await
+        {
+            Ok(r) => r,
             Err(e) => {
                 eprintln!("Failed to fetch measures history: {e}");
                 return 1;
             }
+        };
+
+        let total = response.paging.total;
+        merge_page_measures(&mut all_measures, response.measures);
+
+        if pagination_done(total, page, page_size) {
+            break;
         }
+        page += 1;
     }
 
     output::print_history(&all_measures, project, json);
