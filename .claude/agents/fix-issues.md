@@ -45,3 +45,4 @@ You are a code issues fixer agent for a Rust project. You work in an **isolated 
 - Do NOT change public API signatures unless the issue requires it
 - Fix the root cause, not the symptom
 - If unsure about a fix, skip the issue and note it in your summary
+- **Tests MUST NOT rely on external dependencies** — no real network calls, no connecting to unreachable servers (e.g. `127.0.0.1:1`), no reliance on TCP connection failure. Use `wiremock` mock servers for HTTP tests. Integration tests in `tests/` must be fully offline.

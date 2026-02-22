@@ -54,3 +54,4 @@ You are a coverage fixer agent for a Rust project. You work in an **isolated git
 - Focus on testing error handling, edge cases, and branching logic
 - Each test should be independent and not rely on test execution order
 - Use `serial_test` crate's `#[serial]` attribute if tests share global state
+- **Tests MUST NOT rely on external dependencies** — no real network calls, no connecting to unreachable servers (e.g. `127.0.0.1:1`), no reliance on TCP connection failure. Use `wiremock` mock servers for HTTP tests in unit tests. Integration tests in `tests/` must be fully offline (test only arg parsing, `--help`, validation errors). This rule is non-negotiable.

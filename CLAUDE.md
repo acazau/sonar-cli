@@ -41,7 +41,6 @@ The codebase follows a layered architecture:
 - Tests use `wiremock` for HTTP mocking with a helper `try_mock_server()` that gracefully skips tests if port binding fails
 - `#[cfg(test)]` inline test modules within source files
 - `serial_test` crate for tests requiring sequential execution
-- `.env` file support via `dotenvy`
 - Exit code convention: 0 = success, 1 = error
 
 ## Environment Variables
@@ -53,6 +52,21 @@ The codebase follows a layered architecture:
 | `SONAR_PROJECT_KEY` | Project identifier |
 | `SONAR_BRANCH` | Branch name for analysis |
 | `RUST_LOG` | Tracing log level filter |
+
+## Testing Rules
+
+- **Tests MUST NOT rely on external dependencies** — no real network calls, no connecting to unreachable servers (e.g. `127.0.0.1:1`), no reliance on TCP connection failure. Unit tests use `wiremock` mock servers for all HTTP testing. Integration tests in `tests/` must be fully offline: only test arg parsing, `--help` output, and validation errors (e.g. missing `--project`).
+- If a script fails due to missing env vars, ask the user.
+
+## Code Review
+
+To run a code review, use the `code-review` agent via the Task tool:
+- `"run a code review"` → `Task(subagent_type: "code-review", mode: "bypassPermissions")` — reviews changed files only
+- `"run a code review --full"` or `"run a code review full"` → same, with `--full` flag — reviews all files
+
+Always spawn the code-review agent with `mode: "bypassPermissions"` so it can run the full pipeline without interactive permission prompts.
+
+Do **not** use the `/scan` or `/report` skills directly for code reviews. Those are individual steps that the code-review agent calls internally.
 
 ## Compiler Warnings
 
