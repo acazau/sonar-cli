@@ -6,7 +6,7 @@ mod types;
 
 use clap::{Parser, Subcommand};
 
-use client::SonarQubeConfig;
+use client::{IssueSearchParams, SonarQubeConfig};
 
 #[derive(Parser)]
 #[command(
@@ -400,10 +400,11 @@ async fn main() {
                 Ok(p) => p,
                 Err(code) => std::process::exit(code),
             };
-            let params = commands::issues::IssuesCommandParams {
-                min_severity: severity.as_deref(),
-                issue_type: issue_type.as_deref(),
-                limit,
+            let severities = commands::issues::build_severity_filter(severity.as_deref());
+            let types = issue_type.as_ref().map(|t| t.to_uppercase());
+            let search_params = IssueSearchParams {
+                severities: severities.as_deref(),
+                types: types.as_deref(),
                 statuses: status.as_deref(),
                 resolutions: resolution.as_deref(),
                 tags: tags.as_deref(),
@@ -414,7 +415,7 @@ async fn main() {
                 assignees: assignee.as_deref(),
                 languages: language.as_deref(),
             };
-            commands::issues::run(config, project, &params, cli.json).await
+            commands::issues::run(config, project, &search_params, limit, cli.json).await
         }
 
         Command::Measures { ref metrics } => {
