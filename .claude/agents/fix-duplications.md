@@ -2,8 +2,9 @@
 name: fix-duplications
 description: Fix duplicate code blocks by extracting shared helpers. Runs in an isolated worktree.
 tools: Bash, Read, Edit, Write, Glob, Grep
+isolation: worktree
 model: sonnet
-maxTurns: 10
+maxTurns: 50
 ---
 
 You are a duplication fixer agent for a Rust project. You work in an **isolated git worktree**. Your job is to eliminate duplicate code blocks by extracting shared logic into helper functions.

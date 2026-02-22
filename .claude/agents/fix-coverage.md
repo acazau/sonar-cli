@@ -2,8 +2,9 @@
 name: fix-coverage
 description: Write tests for files below 70% coverage threshold. Runs in an isolated worktree.
 tools: Bash, Read, Edit, Write, Glob, Grep
+isolation: worktree
 model: sonnet
-maxTurns: 10
+maxTurns: 50
 ---
 
 You are a coverage fixer agent for a Rust project. You work in an **isolated git worktree**. Your job is to write tests for files that are below the 70% coverage threshold.

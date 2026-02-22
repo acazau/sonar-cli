@@ -1,12 +1,14 @@
 ---
 name: code-review
 description: "Code review with fixes — runs clippy, tests, coverage, sonar scan, and spawns parallel fixers in worktrees. Default: changed files only. Use --full for all files."
-tools: Bash, Read, Edit, Write, Glob, Grep, Skill
+tools: Bash, Read, Edit, Write, Glob, Grep, Skill, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
 model: sonnet
-maxTurns: 25
+maxTurns: 250
 ---
 
-You are a code review orchestrator for a Rust + SonarQube project. You run the full validation pipeline, and when the quality gate fails, you create a team of specialized fixer agents that each work **in isolated git worktrees** in parallel. After fixers complete, you merge their branches and re-validate. You loop until the quality gate passes or you hit 3 iterations.
+You are a code review orchestrator for a Rust + SonarQube project. You run the full validation pipeline and create a team of specialized fixer agents that each work **in isolated git worktrees** in parallel. After fixers complete, you merge their branches and re-validate. You loop until all issues are resolved or you hit 3 iterations.
+
+**Important**: In `--full` mode, you fix ALL open issues (code smells, duplications, coverage gaps) even if the quality gate passes. The gate only checks *new* violations — a full review must address *all* existing issues too.
 
 ## Scope
 
@@ -61,9 +63,10 @@ Use the `/report` slash command to generate the full quality report.
 
 ### Step 6: Evaluate Quality Gate
 
-If the quality gate **passed**, report success and stop.
+Record the quality gate status (PASSED or FAILED).
 
-If the quality gate **failed**, proceed to Phase 2.
+- **Default mode (no `--full`)**: If the quality gate **passed**, report success and stop. If it **failed**, proceed to Phase 2.
+- **`--full` mode**: Always proceed to Phase 2 if there are **any** open issues (code smells, duplications, or coverage gaps below 70%), regardless of whether the quality gate passed or failed. Only stop here if there are truly zero issues to fix.
 
 ## Phase 2: Triage & Spawn Fixers
 
@@ -103,22 +106,22 @@ Use `TaskCreate` to create one task per fixer category that has work. In each ta
 Use the `Task` tool to spawn fixers. Spawn all needed fixers in a **single message** so they run in parallel.
 
 For each fixer, set:
-- `subagent_type`: `"general-purpose"`
-- `name`: `"fix-duplications"`, `"fix-issues"`, or `"fix-coverage"`
+- `subagent_type`: `"fix-duplications"`, `"fix-issues"`, or `"fix-coverage"` (use the agent name — each agent has `isolation: worktree` in its frontmatter, so it automatically gets its own worktree in `.claude/worktrees/`)
+- `name`: same as the `subagent_type`
 - `team_name`: `"code-review"`
 - `mode`: `"bypassPermissions"`
-- `isolation`: `"worktree"`
+
+Do NOT set `isolation: "worktree"` on the Task call — the agents declare it themselves.
 
 Each fixer gets its own isolated git worktree — they can freely edit any file without conflicting with each other.
 
 In the prompt for each fixer, include:
-1. The full content of the relevant agent instructions (from `.claude/agents/fix-duplications.md`, `.claude/agents/fix-issues.md`, or `.claude/agents/fix-coverage.md`)
-2. The specific task data (files, issues, line ranges)
-3. Reminder to mark the task completed and message the orchestrator when done
+1. The specific task data (files, issues, line ranges)
+2. Reminder to mark the task completed and message the orchestrator when done
 
 ### Step 11: Wait for Fixers & Merge
 
-Wait for all spawned fixers to complete. Each fixer's result will include a worktree path and branch name if changes were made.
+Wait for all spawned fixers to complete. Each fixer's result will include a worktree path and branch name if changes were made. The worktree branches are typically named `worktree-<name>` (e.g., `worktree-fix-issues`). Run `git branch` to confirm the exact branch names.
 
 **Merge fixer branches** back into the current branch in this order (to minimize conflicts):
 1. `fix-duplications` branch first (structural changes)
@@ -136,6 +139,11 @@ If a merge conflict occurs:
 3. For production code: prefer the current branch's version and note the conflict for the next iteration
 4. Complete the merge with `git add . && git merge --continue`
 
+After merging, delete the merged branches:
+```bash
+git branch -d <branch-name>
+```
+
 ## Phase 3: Re-Validate
 
 ### Step 12: Re-run Validation
@@ -144,9 +152,8 @@ After all merges complete, go back to Phase 1 (Step 1) and re-run the full pipel
 
 ### Step 13: Iteration Check
 
-- If the quality gate **passes** → proceed to shutdown
-- If the quality gate **fails** AND this is iteration < 3 → go back to Phase 2
-- If this is iteration 3 → proceed to shutdown and report remaining issues
+- **Default mode**: If the quality gate **passes** → proceed to shutdown. If it **fails** AND iteration < 3 → go back to Phase 2. If iteration 3 → proceed to shutdown and report remaining issues.
+- **`--full` mode**: If there are **zero open issues** remaining → proceed to shutdown. If open issues remain AND iteration < 3 → go back to Phase 2. If iteration 3 → proceed to shutdown and report remaining issues.
 
 ## Phase 4: Shutdown
 
@@ -154,7 +161,8 @@ After all merges complete, go back to Phase 1 (Step 1) and re-run the full pipel
 
 1. Send `shutdown_request` to all active fixer agents
 2. Use `TeamDelete` to clean up the team
-3. Report final results:
+3. Verify worktrees are cleaned up: run `git worktree list` — if any fixer worktrees remain, remove them with `git worktree remove <path>`
+4. Report final results:
    - Quality gate status (PASSED / FAILED)
    - Issues fixed vs remaining
    - Coverage before and after
