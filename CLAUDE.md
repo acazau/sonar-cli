@@ -60,13 +60,13 @@ The codebase follows a layered architecture:
 
 ## Code Review
 
-To run a code review, use the `code-review` agent via the Task tool:
-- `"run a code review"` → `Task(subagent_type: "code-review", mode: "bypassPermissions")` — reviews changed files only
-- `"run a code review --full"` or `"run a code review full"` → same, with `--full` flag — reviews all files
+To run a code review, use the `/code-review` slash command:
+- `/code-review` — reviews changed files only
+- `/code-review --full` — reviews all files
 
-Always spawn the code-review agent with `mode: "bypassPermissions"` so it can run the full pipeline without interactive permission prompts.
+The slash command runs in the main session (as orchestrator), performing the sonar scan and data gathering centrally, then spawning parallel detect+fix agents as teammates. Each agent owns its full cycle — clippy and tests agents run their own `cargo` commands, while sonar-based agents (issues, duplications, coverage) receive JSON data from the orchestrator.
 
-Do **not** use the `/scan` or `/report` skills directly for code reviews. Those are individual steps that the code-review agent calls internally.
+Do **not** use the `/scan` or `/report` skills directly for code reviews. Those are individual steps that the code-review pipeline calls internally.
 
 ## Compiler Warnings
 
