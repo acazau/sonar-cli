@@ -1822,6 +1822,102 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_wait_for_analysis_pending_then_success() {
+        // Exercises the _ (PENDING/IN_PROGRESS) branch that sleeps and retries
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        // First call returns PENDING status
+        Mock::given(method("GET"))
+            .and(path("/api/ce/task"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "task": {
+                    "id": "task-pending",
+                    "type": "REPORT",
+                    "status": "PENDING",
+                    "submittedAt": "2024-01-01T00:00:00+0000"
+                }
+            })))
+            .up_to_n_times(1)
+            .mount(&mock_server)
+            .await;
+
+        // Second call returns SUCCESS
+        Mock::given(method("GET"))
+            .and(path("/api/ce/task"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "task": {
+                    "id": "task-pending",
+                    "type": "REPORT",
+                    "status": "SUCCESS",
+                    "submittedAt": "2024-01-01T00:00:00+0000",
+                    "executedAt": "2024-01-01T00:01:00+0000",
+                    "analysisId": "analysis-pending"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client
+            .wait_for_analysis("task-pending", Duration::from_secs(10), Duration::from_millis(50))
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "SUCCESS");
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_analysis_malformed_json_then_success() {
+        // Exercises the JSON parse error retry path in wait_for_analysis
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        // First call returns 200 with invalid JSON body
+        Mock::given(method("GET"))
+            .and(path("/api/ce/task"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("not-json"))
+            .up_to_n_times(1)
+            .mount(&mock_server)
+            .await;
+
+        // Second call returns valid response
+        Mock::given(method("GET"))
+            .and(path("/api/ce/task"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "task": {
+                    "id": "task-json",
+                    "type": "REPORT",
+                    "status": "SUCCESS",
+                    "submittedAt": "2024-01-01T00:00:00+0000",
+                    "executedAt": "2024-01-01T00:01:00+0000"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client
+            .wait_for_analysis("task-json", Duration::from_secs(10), Duration::from_millis(50))
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().status, "SUCCESS");
+    }
+
+    #[tokio::test]
     async fn test_get_issues_with_all_params() {
         // Exercises all optional parameter branches in search_issues_with_params
         let mock_server = match try_mock_server().await {

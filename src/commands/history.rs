@@ -136,6 +136,99 @@ mod tests {
         assert_eq!(exit, 0);
     }
 
+    #[test]
+    fn test_merge_page_measures_new_metric() {
+        let mut all = Vec::new();
+        let page = vec![MeasureHistory {
+            metric: "coverage".to_string(),
+            history: vec![crate::types::HistoryValue {
+                date: "2026-01-01".to_string(),
+                value: Some("80.0".to_string()),
+            }],
+        }];
+        merge_page_measures(&mut all, page);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].history.len(), 1);
+    }
+
+    #[test]
+    fn test_merge_page_measures_existing_metric() {
+        let mut all = vec![MeasureHistory {
+            metric: "coverage".to_string(),
+            history: vec![crate::types::HistoryValue {
+                date: "2026-01-01".to_string(),
+                value: Some("80.0".to_string()),
+            }],
+        }];
+        let page = vec![MeasureHistory {
+            metric: "coverage".to_string(),
+            history: vec![crate::types::HistoryValue {
+                date: "2026-02-01".to_string(),
+                value: Some("85.0".to_string()),
+            }],
+        }];
+        merge_page_measures(&mut all, page);
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].history.len(), 2);
+    }
+
+    #[test]
+    fn test_pagination_done() {
+        assert!(pagination_done(50, 1, 100));
+        assert!(!pagination_done(200, 1, 100));
+        assert!(pagination_done(200, 2, 100));
+        // page >= 100 guard
+        assert!(pagination_done(20000, 100, 100));
+    }
+
+    #[tokio::test]
+    async fn test_run_history_multi_page() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Page 1: return 100 history items with total=101 to trigger page 2
+        use wiremock::matchers::query_param;
+        let page1_history = vec![crate::types::HistoryValue {
+            date: "2026-01-01".to_string(),
+            value: Some("80.0".to_string()),
+        }];
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/search_history"))
+            .and(query_param("p", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"total": 200},
+                "measures": [{
+                    "metric": "coverage",
+                    "history": page1_history.iter().map(|h| {
+                        serde_json::json!({"date": &h.date, "value": &h.value})
+                    }).collect::<Vec<_>>()
+                }]
+            })))
+            .up_to_n_times(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/search_history"))
+            .and(query_param("p", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"total": 200},
+                "measures": [{
+                    "metric": "coverage",
+                    "history": [{"date": "2026-02-01", "value": "85.0"}]
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj", "coverage", None, None, false).await;
+        assert_eq!(exit, 0);
+    }
+
     #[tokio::test]
     async fn test_run_history_api_error() {
         let mock_server = match try_mock_server().await {

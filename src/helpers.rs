@@ -464,6 +464,82 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_to_duplication_zero_lines() {
+        let file = TreeComponent {
+            key: "my-proj:src/clean.rs".to_string(),
+            name: None,
+            path: Some("src/clean.rs".to_string()),
+            qualifier: None,
+            measures: vec![
+                Measure { metric: "duplicated_lines".to_string(), value: Some("0".to_string()), period: None },
+                Measure { metric: "duplicated_lines_density".to_string(), value: Some("0.0".to_string()), period: None },
+            ],
+        };
+        assert!(convert_to_duplication(&file, "my-proj").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_extended_data_multiple_coverage_gaps() {
+        // Exercises the sort comparator with 2+ coverage gaps
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        let tree_response = serde_json::json!({
+            "paging": {"total": 3},
+            "components": [
+                {
+                    "key": "my-proj:src/a.rs",
+                    "path": "src/a.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "0"},
+                        {"metric": "coverage", "value": "30.0"},
+                        {"metric": "uncovered_lines", "value": "70"},
+                        {"metric": "lines_to_cover", "value": "100"}
+                    ]
+                },
+                {
+                    "key": "my-proj:src/b.rs",
+                    "path": "src/b.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "0"},
+                        {"metric": "coverage", "value": "60.0"},
+                        {"metric": "uncovered_lines", "value": "20"},
+                        {"metric": "lines_to_cover", "value": "50"}
+                    ]
+                },
+                {
+                    "key": "my-proj:src/c.rs",
+                    "path": "src/c.rs",
+                    "measures": [
+                        {"metric": "duplicated_lines", "value": "0"},
+                        {"metric": "coverage", "value": "10.0"},
+                        {"metric": "uncovered_lines", "value": "45"},
+                        {"metric": "lines_to_cover", "value": "50"}
+                    ]
+                }
+            ]
+        });
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree_response))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = SonarQubeClient::new(config).unwrap();
+        let result = fetch_extended_data(&client, "my-proj").await;
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.coverage_gaps.len(), 3);
+        // Should be sorted by coverage ascending
+        assert!(data.coverage_gaps[0].coverage_percent <= data.coverage_gaps[1].coverage_percent);
+        assert!(data.coverage_gaps[1].coverage_percent <= data.coverage_gaps[2].coverage_percent);
+    }
+
+    #[test]
     fn test_parse_measure_coverage_as_float_exact() {
         // Additional coverage for parse_measure to exercise found-and-parsed path
         let measures = vec![

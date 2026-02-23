@@ -185,6 +185,59 @@ mod tests {
         assert_eq!(exit, 0);
     }
 
+    fn coverage_tree_multi_body() -> serde_json::Value {
+        serde_json::json!({
+            "paging": {"total": 3},
+            "components": [
+                {
+                    "key": "my-proj:src/main.rs",
+                    "path": "src/main.rs",
+                    "measures": [
+                        {"metric": "coverage", "value": "30.0"},
+                        {"metric": "uncovered_lines", "value": "70"},
+                        {"metric": "lines_to_cover", "value": "100"}
+                    ]
+                },
+                {
+                    "key": "my-proj:src/lib.rs",
+                    "path": "src/lib.rs",
+                    "measures": [
+                        {"metric": "coverage", "value": "90.0"},
+                        {"metric": "uncovered_lines", "value": "5"},
+                        {"metric": "lines_to_cover", "value": "50"}
+                    ]
+                },
+                {
+                    "key": "my-proj:src/utils.rs",
+                    "path": "src/utils.rs",
+                    "measures": [
+                        {"metric": "coverage", "value": "60.0"},
+                        {"metric": "uncovered_lines", "value": "20"},
+                        {"metric": "lines_to_cover", "value": "50"}
+                    ]
+                }
+            ]
+        })
+    }
+
+    #[tokio::test]
+    async fn test_run_coverage_default_sort_multiple_files() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(coverage_tree_multi_body()))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        // Default sort (None → "coverage") with 3 files exercises the sort comparator
+        let exit = run(config, "my-proj", None, None, false).await;
+        assert_eq!(exit, 0);
+    }
+
     #[tokio::test]
     async fn test_run_coverage_api_error() {
         let mock_server = match try_mock_server().await {

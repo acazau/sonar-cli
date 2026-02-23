@@ -101,6 +101,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_run_health_unreachable_text() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/system/status"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, false).await;
+        assert_eq!(exit, 1);
+    }
+
+    #[tokio::test]
     async fn test_run_health_up_json() {
         let mock_server = match try_mock_server().await {
             Some(s) => s,

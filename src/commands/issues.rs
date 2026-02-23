@@ -198,6 +198,71 @@ mod tests {
         assert_eq!(exit, 0);
     }
 
+    #[tokio::test]
+    async fn test_run_issues_pagination() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        // Page 1: 100 issues with total=101 to trigger page 2
+        use wiremock::matchers::query_param;
+        let page1_issues: Vec<serde_json::Value> = (0..100)
+            .map(|i| {
+                serde_json::json!({
+                    "key": format!("issue-{i}"),
+                    "rule": "rust:S3776",
+                    "severity": "MAJOR",
+                    "component": "my-proj:src/main.rs",
+                    "project": "my-proj",
+                    "line": i + 1,
+                    "message": "Issue",
+                    "type": "CODE_SMELL",
+                    "status": "OPEN",
+                    "tags": []
+                })
+            })
+            .collect();
+
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .and(query_param("p", "1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"total": 101, "issues": page1_issues}),
+            ))
+            .up_to_n_times(1)
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .and(query_param("p", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({
+                    "total": 101,
+                    "issues": [{
+                        "key": "issue-100",
+                        "rule": "rust:S3776",
+                        "severity": "MAJOR",
+                        "component": "my-proj:src/main.rs",
+                        "project": "my-proj",
+                        "line": 101,
+                        "message": "Issue",
+                        "type": "CODE_SMELL",
+                        "status": "OPEN",
+                        "tags": []
+                    }]
+                }),
+            ))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let params = IssueSearchParams::default();
+        let exit = run(config, "my-proj", &params, None, false).await;
+        assert_eq!(exit, 0);
+    }
+
     #[test]
     fn test_build_severity_filter_none() {
         assert_eq!(build_severity_filter(None), None);

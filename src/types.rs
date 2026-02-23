@@ -379,4 +379,10 @@ mod tests {
         assert_eq!(severity::ordinal("CRITICAL"), 3);
         assert_eq!(severity::ordinal("BLOCKER"), 4);
     }
+
+    #[test]
+    fn test_severity_ordinal_unknown() {
+        assert_eq!(severity::ordinal("UNKNOWN"), 0);
+        assert_eq!(severity::ordinal(""), 0);
+    }
 }
