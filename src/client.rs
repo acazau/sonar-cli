@@ -180,7 +180,7 @@ impl SonarQubeClient {
     ) -> Result<IssuesResponse, SonarQubeError> {
         let statuses = params.statuses.unwrap_or("OPEN,CONFIRMED,REOPENED");
         let mut url = format!(
-            "{}/api/issues/search?projectKeys={}&p={}&ps={}&statuses={}{}",
+            "{}/api/issues/search?componentKeys={}&p={}&ps={}&statuses={}{}",
             self.config.url,
             project_key,
             page,
@@ -787,7 +787,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/api/issues/search"))
-            .and(query_param("projectKeys", "my-project"))
+            .and(query_param("componentKeys", "my-project"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "total": 1, "p": 1, "ps": 10,
                 "paging": {"pageIndex": 1, "pageSize": 10, "total": 1},
@@ -927,7 +927,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/api/issues/search"))
-            .and(query_param("projectKeys", "my-project"))
+            .and(query_param("componentKeys", "my-project"))
             .and(query_param("statuses", "RESOLVED"))
             .and(query_param("languages", "java"))
             .and(query_param("createdAfter", "2025-01-01"))
@@ -1927,7 +1927,7 @@ mod tests {
 
         Mock::given(method("GET"))
             .and(path("/api/issues/search"))
-            .and(query_param("projectKeys", "my-project"))
+            .and(query_param("componentKeys", "my-project"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "total": 0, "p": 1, "ps": 100,
                 "issues": []
