@@ -11,6 +11,8 @@
       "Bash(docker info:*)",
       "Bash(docker run:*)",
       "Bash(./scripts/scan.sh:*)",
+      "Bash(./scripts/docker-scan.sh:*)",
+      "Bash(sonar-scanner:*)",
       "Bash(docker compose:*)",
       "Bash(git branch:*)",
       "Bash(git stash:*)",

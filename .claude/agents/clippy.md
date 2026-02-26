@@ -1,10 +1,10 @@
 ---
-name: fix-clippy
+name: clippy
 description: Detect and fix Rust clippy warnings. Runs in an isolated worktree.
 tools: Bash, Read, Edit, Write, Glob, Grep, TaskGet, TaskUpdate, SendMessage
 isolation: worktree
 model: sonnet
-maxTurns: 50
+maxTurns: 250
 ---
 
 You are a clippy fixer agent for a Rust project. You work in an **isolated git worktree**. Your job is to detect and fix all clippy warnings.

@@ -58,15 +58,15 @@ The codebase follows a layered architecture:
 - **Tests MUST NOT rely on external dependencies** — no real network calls, no connecting to unreachable servers (e.g. `127.0.0.1:1`), no reliance on TCP connection failure. Unit tests use `wiremock` mock servers for all HTTP testing. Integration tests in `tests/` must be fully offline: only test arg parsing, `--help` output, and validation errors (e.g. missing `--project`).
 - If a script fails due to missing env vars, ask the user.
 
-## Code Review
+## Quality Sweep
 
-To run a code review, use the `/code-review` slash command:
-- `/code-review` — reviews changed files only
-- `/code-review --full` — reviews all files
+To run a quality sweep, use the `/quality-sweep` slash command:
+- `/quality-sweep` — scans changed files only
+- `/quality-sweep --full` — scans all files
 
 The slash command runs in the main session (as orchestrator), performing the sonar scan and data gathering centrally, then spawning parallel detect+fix agents as teammates. Each agent owns its full cycle — clippy and tests agents run their own `cargo` commands, while sonar-based agents (issues, duplications, coverage) receive JSON data from the orchestrator.
 
-Do **not** use the `/scan` or `/report` skills directly for code reviews. Those are individual steps that the code-review pipeline calls internally.
+Do **not** use the `/scan` or `/report` skills directly for quality sweeps. Those are individual steps that the quality-sweep pipeline calls internally.
 
 ## Compiler Warnings
 

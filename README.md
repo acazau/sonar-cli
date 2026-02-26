@@ -135,6 +135,21 @@ SonarQube will be available at `http://localhost:9000` (default credentials: `ad
    SONAR_PROJECT_KEY=<your-project-key>
    ```
 
+### Running a scan
+
+**Native (default)** — requires `sonar-scanner` installed locally:
+
+```bash
+brew install sonar-scanner
+./scripts/scan.sh
+```
+
+**Docker (reference)** — uses the `sonarsource/sonar-scanner-cli` image:
+
+```bash
+./scripts/docker-scan.sh
+```
+
 ### Branch analysis
 
 Branch analysis is automatic — the `/scan` command detects the current git branch and passes it to the scanner via `-Dsonar.branch.name`. Results are then queryable per branch:
@@ -144,16 +159,16 @@ sonar-cli --project my-proj --branch feature-x issues
 sonar-cli --project my-proj --branch feature-x quality-gate
 ```
 
-## Claude Code Review Workflow
+## Claude Quality Sweep Workflow
 
-This project includes a Claude Code agent (`@code-review`) that automates code review with parallel fixers in isolated git worktrees.
+This project includes a Claude Code agent (`/quality-sweep`) that scans for issues and auto-fixes them using parallel agents in isolated git worktrees.
 
-- `@code-review` — review changed files only (default)
-- `@code-review --full` — review all files (tech debt cleanup)
+- `/quality-sweep` — scan changed files only (default)
+- `/quality-sweep --full` — scan all files (tech debt cleanup)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                 @code-review [--full]                     │
+│                /quality-sweep [--full]                     │
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ▼
@@ -209,7 +224,7 @@ This project includes a Claude Code agent (`@code-review`) that automates code r
                                │
                                ▼
                    ┌────────────────────────────┐
-                   │ TeamCreate "code-review"   │
+                   │ TeamCreate "quality-sweep"  │
                    │ TaskCreate per category    │
                    └───────────┬────────────────┘
                                │
@@ -219,8 +234,8 @@ This project includes a Claude Code agent (`@code-review`) that automates code r
        ┌──────────────┐ ┌───────────┐ ┌────────────┐
        │ WORKTREE A   │ │WORKTREE B │ │ WORKTREE C │
        │              │ │           │ │            │
-       │ fix-         │ │fix-issues │ │fix-coverage│
-       │ duplications │ │           │ │            │
+       │              │ │           │ │            │
+       │ duplications │ │ issues    │ │ coverage   │
        │              │ │ Bugs,     │ │ Add tests  │
        │ Extract      │ │ smells,   │ │ for files  │
        │ helpers      │ │ vulns     │ │ below 70%  │

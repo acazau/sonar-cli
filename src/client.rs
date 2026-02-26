@@ -6,7 +6,12 @@ use reqwest::Client as HttpClient;
 use std::time::Duration;
 use thiserror::Error;
 
-use crate::types::*;
+use crate::types::{
+    task_status, AnalysisResponse, AnalysisTask, ComponentTreeResponse, DuplicationsResponse,
+    HotspotsResponse, IssuesResponse, MeasuresHistoryResponse, MeasuresResponse, ProjectInfo,
+    ProjectsSearchResponse, QualityGateResponse, RuleInfo, RulesSearchResponse, SecurityHotspot,
+    SourceLine, TreeComponent,
+};
 
 /// Parameters for the issue search API
 #[derive(Debug, Default)]
