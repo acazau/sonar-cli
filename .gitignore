@@ -9,3 +9,4 @@ clippy-report.json
 .env
 .env.*
 .claude/worktrees/
+.scannerwork/
