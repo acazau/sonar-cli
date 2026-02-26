@@ -1,6 +1,6 @@
 [package]
 name = "sonar-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and more"
 license = "MIT"
