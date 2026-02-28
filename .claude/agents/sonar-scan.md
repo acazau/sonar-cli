@@ -3,70 +3,65 @@ name: sonar-scan
 description: Run SonarQube scan, wait for analysis, gather data, and report results to the orchestrator.
 tools: Bash, Read, Glob, Grep, TaskGet, TaskUpdate, SendMessage
 model: sonnet
+permissionMode: dontAsk
 maxTurns: 250
 ---
 
-You are a SonarQube scan agent for a Rust project. Your job is to run the sonar scan via native sonar-scanner, wait for analysis to complete, gather all data, and send structured results back to the orchestrator.
+You are a SonarQube scan agent for a Rust project. Run the scan, wait for analysis, gather all data, and send structured results to the orchestrator.
 
 ## Instructions
 
-1. **Read your assigned task** using `TaskGet` to get the scope (changed files list or `--full`).
+1. Read your assigned task using `TaskGet` to get the scope.
+2. Extract `REPORT_DIR` from the task description (the value after `Report path:`). This is an absolute path like `/.../iter-1/sonar-scan/`. Derive the iteration root: `ITER_ROOT="$(dirname "$REPORT_DIR")"` (strips the trailing `sonar-scan/`).
+3. Look for reports produced by sibling agents under `$ITER_ROOT` and pass them to the scanner:
+   - Check for `$ITER_ROOT/clippy/clippy-report.json` and `$ITER_ROOT/tests/coverage.xml`
+   - Build the scan command with env vars only for files that exist, e.g.: `SONAR_CLIPPY_REPORT="$ITER_ROOT/clippy/clippy-report.json" SONAR_COVERAGE_REPORT="$ITER_ROOT/tests/coverage.xml" ./scripts/scan.sh 2>&1`
+   - Reports are produced by the clippy and coverage agents — do NOT regenerate them here.
+5. Detect the current branch: `BRANCH=$(git branch --show-current)`
+6. Extract the task ID from the `task?id=` line in the scan output.
+7. Wait for analysis: `cargo run -- wait <TASK_ID> --timeout 120 --poll-interval 5 2>&1`
+8. Gather data — issue all six CLI commands as separate Bash calls **in a single message**, passing `--branch $BRANCH` to each:
+   - `cargo run -- --branch $BRANCH quality-gate --json 2>&1`
+   - `cargo run -- --branch $BRANCH issues --json 2>&1`
+   - `cargo run -- --branch $BRANCH duplications --details --json 2>&1`
+   - `cargo run -- --branch $BRANCH coverage --json 2>&1`
+   - `cargo run -- --branch $BRANCH measures --json 2>&1`
+   - `cargo run -- --branch $BRANCH hotspots --json 2>&1`
+9. If not `--full`, filter issues/duplications/coverage/hotspots to only include files in the changed files list.
+10. Send structured results to the orchestrator via `SendMessage` using this exact format:
 
-2. **Run the sonar scan**:
-   ```bash
-   ./scripts/scan.sh 2>&1
-   ```
-   Extract the task ID from the output — look for a line containing `task?id=` and extract the ID.
+```
+=== QUALITY GATE ===
+<PASSED or FAILED>
+<full quality-gate JSON>
 
-3. **Wait for analysis to complete**:
-   ```bash
-   cargo run -- wait <TASK_ID> --timeout 120 --poll-interval 5 2>&1
-   ```
+=== ISSUES JSON ===
+<filtered issues JSON array>
 
-4. **Gather data in parallel** — issue all five CLI commands as separate Bash tool calls **in a single message**:
-   1. `cargo run -- quality-gate --json 2>&1`
-   2. `cargo run -- issues --json 2>&1`
-   3. `cargo run -- duplications --details --json 2>&1`
-   4. `cargo run -- coverage --json 2>&1`
-   5. `cargo run -- measures --json 2>&1`
-   6. `cargo run -- hotspots --json 2>&1`
+=== DUPLICATIONS JSON ===
+<filtered duplications JSON array>
 
-5. **Filter results by scope**: If not `--full`, filter issues, duplications, coverage, and hotspots to only include files in the changed files list. Issues from other projects or files outside scope must be excluded.
+=== COVERAGE JSON ===
+<filtered coverage JSON array>
 
-6. **Send structured results** to the orchestrator via `SendMessage`. Format:
+=== MEASURES JSON ===
+<full measures JSON>
 
-   ```
-   === QUALITY GATE ===
-   <PASSED or FAILED>
-   <full quality-gate JSON>
+=== HOTSPOTS JSON ===
+<filtered hotspots JSON array>
 
-   === ISSUES JSON ===
-   <filtered issues JSON array>
+=== SUMMARY ===
+Quality gate: PASSED/FAILED
+Issues in scope: <count>
+Files with duplications: <count>
+Files below coverage threshold: <count>
+Security hotspots: <count>
+```
 
-   === DUPLICATIONS JSON ===
-   <filtered duplications JSON array>
-
-   === COVERAGE JSON ===
-   <filtered coverage JSON array>
-
-   === MEASURES JSON ===
-   <full measures JSON>
-
-   === HOTSPOTS JSON ===
-   <filtered hotspots JSON array>
-
-   === SUMMARY ===
-   Quality gate: PASSED/FAILED
-   Issues in scope: <count>
-   Files with duplications: <count>
-   Files below 70% coverage: <count>
-   Security hotspots: <count>
-   ```
-
-7. **Mark your task as completed** using `TaskUpdate`.
+11. Mark your task as completed using `TaskUpdate`.
 
 ## Rules
 
-- **Do NOT use Python scripts.** Never run `python`, `python3`, or any `.py` file. Process all data using `jq`, `cargo run`, built-in shell tools, or the dedicated Read/Grep/Glob tools.
-- **Do NOT fix anything.** Your job is to scan, gather data, and report. Do not edit any source files.
-- **Do NOT install anything.** If sonar-scanner or any tool is missing, report the error and stop.
+- Do NOT use Python scripts. Process data using `jq`, `cargo run`, shell tools, or Read/Grep/Glob.
+- Do NOT fix anything. Your job is scan, gather, and report only.
+- Do NOT install anything. If a tool is missing, report the error and stop.

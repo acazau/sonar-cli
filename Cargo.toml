@@ -1,6 +1,6 @@
 [package]
 name = "sonar-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and more"
 license = "MIT"
@@ -19,6 +19,8 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
+dirs = "6"
+toml = "0.8"
 
 [dev-dependencies]
 wiremock = "0.6"

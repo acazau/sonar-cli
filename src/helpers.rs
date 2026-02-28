@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 use crate::client::{SonarQubeClient, SonarQubeError};
-use crate::types::*;
+use crate::types::{DuplicationsResponse, Measure, TreeComponent};
 
 /// Extended SonarQube data for downstream use
 #[derive(Debug, Clone, Serialize)]

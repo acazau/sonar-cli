@@ -13,5 +13,6 @@ sonar-scanner \
   -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
   -Dsonar.projectBaseDir="$(pwd)" \
   -Dsonar.branch.name="$(git branch --show-current)" \
-  -Dsonar.rust.cobertura.reportPaths=coverage.xml \
+  -Dsonar.rust.cobertura.reportPaths="${SONAR_COVERAGE_REPORT:-coverage.xml}" \
+  -Dsonar.rust.clippy.reportPaths="${SONAR_CLIPPY_REPORT:-clippy-report.json}" \
   "$@"

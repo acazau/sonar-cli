@@ -161,14 +161,14 @@ sonar-cli --project my-proj --branch feature-x quality-gate
 
 ## Claude Quality Sweep Workflow
 
-This project includes a Claude Code agent (`/quality-sweep`) that scans for issues and auto-fixes them using parallel agents in isolated git worktrees.
+This project includes a Claude Code agent (`/quality-fix`) that scans for issues and auto-fixes them using parallel agents in isolated git worktrees.
 
-- `/quality-sweep` — scan changed files only (default)
-- `/quality-sweep --full` — scan all files (tech debt cleanup)
+- `/quality-fix` — scan changed files only (default)
+- `/quality-fix --full` — scan all files (tech debt cleanup)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                /quality-sweep [--full]                     │
+│                /quality-fix [--full]                       │
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ▼
@@ -224,7 +224,7 @@ This project includes a Claude Code agent (`/quality-sweep`) that scans for issu
                                │
                                ▼
                    ┌────────────────────────────┐
-                   │ TeamCreate "quality-sweep"  │
+                   │ TeamCreate "quality-fix"    │
                    │ TaskCreate per category    │
                    └───────────┬────────────────┘
                                │

@@ -1,10 +1,10 @@
 ---
-description: "Quality sweep — scans for issues, auto-fixes, and validates."
+description: "Quality fix — scans for issues, auto-fixes, and validates."
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Task, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
 argument-hint: "[--full] [--iterations N]"
 ---
 
-You are a quality sweep orchestrator for a Rust + SonarQube project. You run build/test agents first, merge their fixes, then scan clean code with sonar. The sonar agent reports structured data, which you triage to spawn fix agents. After fixing, a lightweight validation scan confirms the results. The orchestrator does NOT run `cargo clippy`, `cargo test`, or scan scripts (`./scripts/scan.sh`, `./scripts/docker-scan.sh`) itself — all detection is delegated to agents.
+You are a quality fix orchestrator for a Rust + SonarQube project. You run build/test agents first, merge their fixes, then scan clean code with sonar. The sonar agent reports structured data, which you triage to spawn fix agents. After fixing, a lightweight validation scan confirms the results. The orchestrator does NOT run `cargo clippy`, `cargo test`, or scan scripts (`./scripts/scan.sh`, `./scripts/docker-scan.sh`) itself — all detection is delegated to agents.
 
 ## Rules
 
@@ -22,6 +22,18 @@ Parse `$ARGUMENTS` for:
 
 Store both values at the start. Refer to the max iterations value as `MAX_ITERATIONS` throughout.
 
+## Report Directory
+
+After parsing arguments and before creating the team, set up a structured report directory using an **absolute path** (so worktree agents can write directly to the main tree):
+
+```bash
+REPORT_ROOT="$(pwd)/reports/$(date +%Y%m%d-%H%M%S)"
+ITERATION=1
+mkdir -p "$REPORT_ROOT"
+```
+
+This creates a `reports/<session-id>/` directory that persists across iterations. Each agent run writes to `$REPORT_ROOT/iter-$ITERATION/<agent-name>/`. Because the path is absolute, worktree agents write to the main tree's `reports/` directory — no copying needed.
+
 ## Scope
 
 Determine scope from the `--full` flag:
@@ -36,16 +48,16 @@ Store the scope (changed files list or "all") for use throughout.
 ### Step 1: Create Team
 
 ```
-TeamCreate("quality-sweep")
+TeamCreate("quality-fix")
 ```
 
 ### Step 2: Create Tasks
 
 Use `TaskCreate` to create tasks for the build/test agents:
 
-**clippy task**: "Detect and fix clippy warnings. Scope: <changed files list or --full>."
+**clippy task**: "Detect and fix clippy warnings. Scope: <changed files list or --full>. Report path: $REPORT_ROOT/iter-$ITERATION/clippy/"
 
-**tests task**: "Detect and fix failing tests. Scope: <changed files list or --full>."
+**tests task**: "Detect and fix failing tests. Scope: <changed files list or --full>. Report path: $REPORT_ROOT/iter-$ITERATION/tests/"
 
 ## Phase 2: Build/Test Agents (Clippy + Tests)
 
@@ -54,15 +66,13 @@ In a **single message**, spawn both agents via `Task`:
 1. **clippy** agent:
    - `subagent_type`: `"clippy"`
    - `name`: `"clippy"` (iteration 2+: `"clippy-2"`, etc.)
-   - `team_name`: `"quality-sweep"`
-   - `mode`: `"bypassPermissions"`
+   - `team_name`: `"quality-fix"`
    - Prompt: include scope, task ID, reminder to mark task completed and message orchestrator
 
 2. **tests** agent:
    - `subagent_type`: `"tests"`
    - `name`: `"tests"` (iteration 2+: `"tests-2"`, etc.)
-   - `team_name`: `"quality-sweep"`
-   - `mode`: `"bypassPermissions"`
+   - `team_name`: `"quality-fix"`
    - Prompt: include scope, task ID, reminder to mark task completed and message orchestrator
 
 Do NOT set `isolation: "worktree"` on Task calls — fix agents declare it themselves.
@@ -105,7 +115,7 @@ Now that the code compiles and tests pass, scan the clean merged code.
 
 Use `TaskCreate`:
 
-**sonar-scan task**: "Run sonar scan, gather data, report results. Scope: <changed files list or --full>."
+**sonar-scan task**: "Run sonar scan, gather data, report results. Scope: <changed files list or --full>. Report path: $REPORT_ROOT/iter-$ITERATION/sonar-scan/"
 
 ### Step 2: Spawn Sonar Agent
 
@@ -113,8 +123,7 @@ Spawn the sonar-scan agent via `Task`:
 
 - `subagent_type`: `"sonar-scan"`
 - `name`: `"sonar-scan"` (iteration 2+: `"sonar-scan-2"`, etc.)
-- `team_name`: `"quality-sweep"`
-- `mode`: `"bypassPermissions"`
+- `team_name`: `"quality-fix"`
 - Prompt: include scope, task ID, reminder to send structured results and message orchestrator
 
 Do NOT set `isolation: "worktree"` — the sonar-scan agent scans the main tree.
@@ -135,7 +144,7 @@ Check four sonar categories:
 
 1. Are there any bugs, vulnerabilities, or code smells? (from issues JSON)
 2. Are there any files with duplicated blocks (duplication density > 0%)? (from duplications JSON)
-3. Are there any files below 70% coverage? (from coverage JSON)
+3. Are there any files below the coverage threshold? (from coverage JSON)
 4. Are there any security hotspots? (from hotspots JSON)
 
 For each category with work, use `TaskCreate` then spawn agents in a **single message**:
@@ -144,15 +153,14 @@ For each category with work, use `TaskCreate` then spawn agents in a **single me
 
 **duplications task**: Include the **exact sonar duplications JSON data** with file/line-range pairs. This includes test files like `tests/cli.rs`.
 
-**coverage task**: Include the **exact sonar coverage JSON data** with files below 70% and their percentages.
+**coverage task**: Include the **exact sonar coverage JSON data** with files below threshold and their percentages. Include: `Report path: $REPORT_ROOT/iter-$ITERATION/coverage/`
 
 **hotspots task**: Include the **exact sonar hotspots JSON data** with file paths, line numbers, rules, and vulnerability probabilities.
 
 For each agent, set:
 - `subagent_type`: `"issues"`, `"duplications"`, `"coverage"`, or `"hotspots"`
 - `name`: same as `subagent_type` (iteration 2+: use iteration-suffixed names)
-- `team_name`: `"quality-sweep"`
-- `mode`: `"bypassPermissions"`
+- `team_name`: `"quality-fix"`
 
 Do NOT set `isolation: "worktree"` on Task calls — agents declare it themselves.
 
@@ -202,16 +210,16 @@ After all merges complete, check if another iteration is needed.
 
 If `iteration >= MAX_ITERATIONS` → proceed to Phase 6 (Shutdown).
 
-Otherwise, run a **lightweight validation scan** — do NOT re-run clippy/tests agents, only scan:
+Otherwise, increment `ITERATION` by 1 and run a **lightweight validation scan** — do NOT re-run clippy/tests agents, only scan:
 
-1. Create a new sonar-scan task: "Validation scan — check remaining issues after fixes. Scope: <changed files list or --full>."
+1. Create a new sonar-scan task: "Validation scan — check remaining issues after fixes. Scope: <changed files list or --full>. Report path: $REPORT_ROOT/iter-$ITERATION/sonar-scan/"
 2. Spawn only the **sonar-scan** agent (same params as Phase 3 Step 2, with iteration-suffixed name)
 3. Wait for results
 4. Parse the structured results (same format as Phase 3 Step 3)
 
 ### Loop Decision
 
-- If **no sonar categories have work** (zero issues, zero duplications, all files above 70% coverage, zero hotspots) → proceed to Phase 6 (Shutdown)
+- If **no sonar categories have work** (zero issues, zero duplications, no files below coverage threshold, zero hotspots) → proceed to Phase 6 (Shutdown)
 - If **work remains** AND `iteration < MAX_ITERATIONS` → loop back to **Phase 2** (re-run clippy + tests first, then scan, then fix agents). Use iteration-suffixed names: `clippy-2`, `tests-2`, `sonar-scan-3`, `issues-2`, etc.
 - If **work remains** AND `iteration >= MAX_ITERATIONS` → proceed to Phase 6 (Shutdown) with remaining issues noted in the report
 
@@ -234,6 +242,7 @@ Otherwise, run a **lightweight validation scan** — do NOT re-run clippy/tests 
    - Security hotspots fixed vs remaining
    - Coverage before and after
    - Number of iterations used
+   - Report artifacts: `$REPORT_ROOT/`
 
 ## User context
 

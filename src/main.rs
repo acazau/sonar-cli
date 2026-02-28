@@ -1,5 +1,6 @@
 mod client;
 mod commands;
+mod config;
 mod helpers;
 mod output;
 mod types;
@@ -25,9 +26,9 @@ use client::{IssueSearchParams, SonarQubeConfig};
         Use 'sonar-cli <command> --help' for detailed usage of each command."
 )]
 struct Cli {
-    /// SonarQube server URL
-    #[arg(long, env = "SONAR_HOST_URL", default_value = "http://localhost:9000", global = true)]
-    url: String,
+    /// SonarQube server URL [default: http://localhost:9000]
+    #[arg(long, env = "SONAR_HOST_URL", global = true)]
+    url: Option<String>,
 
     /// Authentication token
     #[arg(long, env = "SONAR_TOKEN", global = true)]
@@ -319,14 +320,53 @@ enum Command {
         poll_interval: u64,
     },
 
+    /// Manage stored credentials (login, status, logout)
+    #[command(long_about = "Manage stored credentials for SonarQube.\n\n\
+        Credentials are saved to a global config file so you don't need to\n\
+        pass --url/--token or set env vars for every command.\n\n\
+        Priority: CLI flags > env vars > config file > defaults\n\n\
+        Examples:\n  \
+          sonar-cli auth login --url https://sonar.example.com --token squ_abc123\n  \
+          sonar-cli auth status\n  \
+          sonar-cli auth logout")]
+    Auth {
+        #[command(subcommand)]
+        action: AuthAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuthAction {
+    /// Save SonarQube URL and token to config file
+    Login {
+        /// SonarQube server URL
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Authentication token
+        #[arg(long)]
+        token: Option<String>,
+    },
+
+    /// Show stored credentials
+    Status,
+
+    /// Remove stored credentials
+    Logout,
 }
 
 impl Cli {
     fn build_config(&self) -> SonarQubeConfig {
-        let mut config = SonarQubeConfig::new(&self.url)
+        let stored = config::load();
+
+        let url = self.url.clone()
+            .or(stored.url)
+            .unwrap_or_else(|| "http://localhost:9000".to_string());
+
+        let mut config = SonarQubeConfig::new(&url)
             .with_timeout(std::time::Duration::from_secs(self.timeout));
 
-        if let Some(ref token) = self.token {
+        if let Some(ref token) = self.token.clone().or(stored.token) {
             config = config.with_token(token);
         }
         if let Some(ref project) = self.project {
@@ -338,12 +378,6 @@ impl Cli {
         config
     }
 
-    fn require_project(&self) -> Result<&str, i32> {
-        self.project.as_deref().ok_or_else(|| {
-            eprintln!("Project key is required. Use --project or set SONAR_PROJECT_KEY.");
-            1
-        })
-    }
 }
 
 /// Initialise the tracing subscriber.
@@ -361,6 +395,28 @@ fn init_tracing(verbose: bool) {
         .init();
 }
 
+/// Dispatch auth sub-commands that do not require a SonarQube client.
+async fn handle_auth(action: &AuthAction, json: bool) -> i32 {
+    match action {
+        AuthAction::Login { url, token } => {
+            commands::auth::login(url.clone(), token.clone(), json).await
+        }
+        AuthAction::Status => commands::auth::status(json).await,
+        AuthAction::Logout => commands::auth::logout(json).await,
+    }
+}
+
+/// Return the project key or print an error and exit.
+fn project_or_exit(project: &Option<String>) -> &str {
+    match project.as_deref() {
+        Some(p) => p,
+        None => {
+            eprintln!("Project key is required. Use --project, set SONAR_PROJECT_KEY, or run `sonar-cli auth login`.");
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let _ = dotenvy::dotenv();
@@ -368,16 +424,20 @@ async fn main() {
 
     init_tracing(cli.verbose);
 
+    // Auth commands don't need a SonarQube client — handle early.
+    if let Command::Auth { ref action } = cli.command {
+        std::process::exit(handle_auth(action, cli.json).await);
+    }
+
     let config = cli.build_config();
 
     let exit_code = match cli.command {
+        Command::Auth { .. } => unreachable!(),
+
         Command::Health => commands::health::run(config, cli.json).await,
 
         Command::QualityGate { fail_on_error } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::quality_gate::run(config, project, fail_on_error, cli.json).await
         }
 
@@ -395,10 +455,7 @@ async fn main() {
             ref assignee,
             ref language,
         } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             let severities = commands::issues::build_severity_filter(severity.as_deref());
             let types = issue_type.as_ref().map(|t| t.to_uppercase());
             let search_params = IssueSearchParams {
@@ -418,10 +475,7 @@ async fn main() {
         }
 
         Command::Measures { ref metrics } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::measures::run(config, project, metrics.as_deref(), cli.json).await
         }
 
@@ -429,26 +483,17 @@ async fn main() {
             min_coverage,
             ref sort,
         } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::coverage::run(config, project, min_coverage, sort.as_deref(), cli.json).await
         }
 
         Command::Duplications { details } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::duplications::run(config, project, details, cli.json).await
         }
 
         Command::Hotspots { ref status } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::hotspots::run(config, project, status.as_deref(), cli.json).await
         }
 
@@ -465,10 +510,7 @@ async fn main() {
             ref from,
             ref to,
         } => {
-            let project = match cli.require_project() {
-                Ok(p) => p,
-                Err(code) => std::process::exit(code),
-            };
+            let project = project_or_exit(&cli.project);
             commands::history::run(
                 config,
                 project,

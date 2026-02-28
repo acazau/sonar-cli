@@ -36,6 +36,41 @@ fn assert_help_contains(subcommand: &str, expected: &[&str]) {
     }
 }
 
+// ── Auth subcommand help ─────────────────────────────────────────────
+
+#[test]
+fn test_auth_help() {
+    assert_help_contains("auth", &["Manage stored credentials"]);
+}
+
+#[test]
+fn test_auth_login_help() {
+    cli()
+        .args(["auth", "login", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--url"))
+        .stdout(predicate::str::contains("--token"));
+}
+
+#[test]
+fn test_auth_status_help() {
+    cli()
+        .args(["auth", "status", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Show stored credentials"));
+}
+
+#[test]
+fn test_auth_logout_help() {
+    cli()
+        .args(["auth", "logout", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Remove stored credentials"));
+}
+
 // ── Top-level flags ─────────────────────────────────────────────────
 
 #[test]

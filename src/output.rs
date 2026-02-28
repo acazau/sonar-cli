@@ -1,7 +1,11 @@
 //! Output formatting — human-readable and JSON
 
 use crate::helpers::{FileCoverage, FileDuplication};
-use crate::types::*;
+use crate::types::{
+    AnalysisTask, MeasureHistory, MeasuresResponse,
+    ProjectInfo, QualityGateResponse,
+    RuleInfo, SecurityHotspot, SonarIssue, SourceLine,
+};
 
 /// Print value as JSON to stdout
 pub fn print_json<T: serde::Serialize + ?Sized>(value: &T) {
@@ -332,6 +336,7 @@ pub fn print_wait_result(task: &AnalysisTask, json: bool) {
 mod tests {
     use super::*;
     use crate::helpers::{DuplicationBlockDetail, FileCoverage, FileDuplication};
+    use crate::types::{Measure, MeasuresComponent, ProjectStatus, QualityGateCondition, TextRange};
 
     fn sample_issue() -> SonarIssue {
         SonarIssue {

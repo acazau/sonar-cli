@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod coverage;
 pub mod duplications;
 pub mod health;
