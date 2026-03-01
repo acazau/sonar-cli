@@ -21,7 +21,8 @@ use client::{IssueSearchParams, SonarQubeConfig};
         Browse metrics:      sonar-cli --project KEY measures\n\
         View metric trends:  sonar-cli --project KEY history --metrics coverage\n\
         Search rules:        sonar-cli rules --language java\n\
-        Read source code:    sonar-cli source PROJECT:path/to/file.rs\n\n\
+        Read source code:    sonar-cli source PROJECT:path/to/file.rs\n\
+        Store credentials:   sonar-cli auth login --url URL --token TOKEN\n\n\
         Most commands require --project (or SONAR_PROJECT_KEY env var).\n\
         Use 'sonar-cli <command> --help' for detailed usage of each command."
 )]
