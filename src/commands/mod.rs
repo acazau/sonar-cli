@@ -9,5 +9,6 @@ pub mod measures;
 pub mod projects;
 pub mod quality_gate;
 pub mod rules;
+pub mod scan;
 pub mod source;
 pub mod wait;

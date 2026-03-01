@@ -3,7 +3,6 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 /// Build a CLI command with SonarQube env vars cleared so tests are hermetic.
-/// Also sets current_dir to a temp dir so dotenvy won't load the project's .env file.
 #[allow(deprecated)]
 fn cli() -> Command {
     let mut cmd = Command::cargo_bin("sonar-cli").unwrap();
@@ -17,9 +16,12 @@ fn cli() -> Command {
 }
 
 /// Assert that running the CLI with the given args fails with "Project key is required".
+/// Prepends --url so build_config() succeeds and reaches the project check.
 fn assert_missing_project(args: &[&str]) {
+    let mut full_args = vec!["--url", "http://localhost:1"];
+    full_args.extend_from_slice(args);
     cli()
-        .args(args)
+        .args(&full_args)
         .assert()
         .failure()
         .stderr(predicate::str::contains("Project key is required"));
@@ -122,7 +124,7 @@ fn test_quality_gate_help() {
 
 #[test]
 fn test_issues_help() {
-    assert_help_contains("issues", &["--severity", "--status", "--rule", "--language"]);
+    assert_help_contains("issues", &["--severity", "--status", "--rule", "--language", "--new-code"]);
 }
 
 #[test]
@@ -142,7 +144,7 @@ fn test_duplications_help() {
 
 #[test]
 fn test_hotspots_help() {
-    assert_help_contains("hotspots", &["--status"]);
+    assert_help_contains("hotspots", &["--status", "--new-code"]);
 }
 
 #[test]
@@ -168,6 +170,11 @@ fn test_source_help() {
 #[test]
 fn test_wait_help() {
     assert_help_contains("wait", &["--timeout", "--poll-interval"]);
+}
+
+#[test]
+fn test_scan_help() {
+    assert_help_contains("scan", &["--clippy-report", "--coverage-report", "--wait", "--wait-timeout", "--poll-interval", "--no-scm", "--skip-unchanged", "--exclusions", "--sources"]);
 }
 
 // ── Missing --project validation (exits before any network call) ────
@@ -241,7 +248,11 @@ fn test_wait_missing_required_task_id_arg() {
 #[test]
 fn test_url_flag_accepted() {
     // Exercises --url parsing in build_config(); exits immediately on missing --project
-    assert_missing_project(&["--url", "http://custom-server:9000", "issues"]);
+    cli()
+        .args(["--url", "http://custom-server:9000", "issues"])
+        .assert()
+        .failure()
+        .stderr(predicates::prelude::predicate::str::contains("Project key is required"));
 }
 
 #[test]
@@ -336,6 +347,18 @@ fn test_duplications_with_details_missing_project() {
 fn test_hotspots_with_status_missing_project() {
     // Exercises Hotspots command arm with --status flag
     assert_missing_project(&["hotspots", "--status", "REVIEWED"]);
+}
+
+#[test]
+fn test_issues_with_new_code_missing_project() {
+    // Exercises Issues command arm with --new-code flag
+    assert_missing_project(&["issues", "--new-code"]);
+}
+
+#[test]
+fn test_hotspots_with_new_code_missing_project() {
+    // Exercises Hotspots command arm with --new-code flag
+    assert_missing_project(&["hotspots", "--new-code"]);
 }
 
 #[test]
@@ -460,4 +483,78 @@ fn test_project_token_url_combination() {
         ])
         .assert()
         .failure();
+}
+
+#[test]
+fn test_scan_missing_project() {
+    assert_missing_project(&["scan"]);
+}
+
+#[test]
+fn test_scan_with_all_flags_missing_project() {
+    // Exercises Scan command arm argument parsing
+    assert_missing_project(&[
+        "scan",
+        "--clippy-report", "clippy.json",
+        "--coverage-report", "coverage.xml",
+        "--wait",
+        "--wait-timeout", "600",
+        "--poll-interval", "10",
+    ]);
+}
+
+// ── Scan missing project with extra args ─────────────────────────────
+
+#[test]
+fn test_scan_with_extra_args_missing_project() {
+    // Exercises the Scan arm's trailing_var_arg passthrough + project check
+    assert_missing_project(&[
+        "scan",
+        "--",
+        "-Dsonar.sources=src",
+        "-Dsonar.verbose=true",
+    ]);
+}
+
+// ── SONAR_PROJECT_KEY env var ────────────────────────────────────────
+
+#[test]
+fn test_project_key_from_env_var() {
+    // Exercises the SONAR_PROJECT_KEY env var path in build_config().
+    // Command still fails at network level (localhost:1 not reachable), not project validation.
+    cli()
+        .env("SONAR_PROJECT_KEY", "my-env-project")
+        .args(["--url", "http://localhost:1", "issues"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_sonar_branch_env_var() {
+    // Exercises the SONAR_BRANCH env var being accepted
+    cli()
+        .env("SONAR_BRANCH", "feature-branch")
+        .args(["--url", "http://localhost:1", "--project", "proj", "issues"])
+        .assert()
+        .failure();
+}
+
+// ── Auth subcommand status (read-only, safe to run anywhere) ──────────
+
+#[test]
+fn test_auth_status_exits_zero() {
+    // auth status reads config (read-only) and always exits 0
+    cli()
+        .args(["auth", "status"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn test_auth_status_json_exits_zero() {
+    // auth status --json path
+    cli()
+        .args(["--json", "auth", "status"])
+        .assert()
+        .success();
 }

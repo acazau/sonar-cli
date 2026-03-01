@@ -1,7 +1,7 @@
 ---
 name: tests
 description: Detect and fix failing tests. Runs in an isolated worktree.
-tools: Bash, Read, Edit, Write, Glob, Grep, TaskGet, TaskUpdate, SendMessage
+tools: Bash, Read, Edit, Glob, Grep, TaskGet, TaskUpdate, SendMessage
 isolation: worktree
 model: sonnet
 permissionMode: dontAsk
@@ -23,6 +23,7 @@ You are a test fixer agent for a Rust project. You work in an **isolated git wor
 
 ## Rules
 
+- **NEVER use Bash to modify source files.** No `sed`, `awk`, `python`, `echo >`, or shell redirection for code changes. Every code modification MUST go through the Edit tool. Violations produce broken diffs and corrupt worktree merges.
 - **Only modify test code** — do NOT change production code (`src/`). If a failure is caused by a production bug, skip the test and note it.
 - Do not delete or `#[ignore]` passing tests.
 - Each test must be independent and not rely on execution order.

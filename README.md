@@ -19,17 +19,17 @@ cargo build --release
 
 ## Configuration
 
-sonar-cli reads configuration from command-line flags or environment variables. A `.env` file in the project root is loaded automatically via `dotenvy`.
+sonar-cli reads configuration from command-line flags or a stored config file (`sonar-cli auth login`).
 
-| Flag | Env Variable | Default | Description |
-|------|-------------|---------|-------------|
-| `--url` | `SONAR_HOST_URL` | `http://localhost:9000` | SonarQube server URL |
-| `--token` | `SONAR_TOKEN` | | Authentication token |
-| `--project` | `SONAR_PROJECT_KEY` | | Project key |
-| `--branch` | `SONAR_BRANCH` | | Branch name |
-| `--json` | | | Output as JSON |
-| `--timeout` | | `30` | Request timeout in seconds |
-| `-v` | | | Verbose logging |
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--url` | *(required)* | SonarQube server URL |
+| `--token` | | Authentication token |
+| `--project` | `SONAR_PROJECT_KEY` env | Project key |
+| `--branch` | `SONAR_BRANCH` env | Branch name |
+| `--json` | | Output as JSON |
+| `--timeout` | `30` | Request timeout in seconds |
+| `-v` | | Verbose logging |
 
 ## Commands
 

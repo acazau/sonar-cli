@@ -1,18 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Load environment variables from .env
-set -a
-source "$(dirname "$0")/../.env"
-set +a
-
-# Run SonarQube scanner natively (requires: brew install sonar-scanner)
-sonar-scanner \
-  -Dsonar.host.url="${SONAR_HOST_URL}" \
-  -Dsonar.token="${SONAR_TOKEN}" \
-  -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-  -Dsonar.projectBaseDir="$(pwd)" \
-  -Dsonar.branch.name="$(git branch --show-current)" \
-  -Dsonar.rust.cobertura.reportPaths="${SONAR_COVERAGE_REPORT:-coverage.xml}" \
-  -Dsonar.rust.clippy.reportPaths="${SONAR_CLIPPY_REPORT:-clippy-report.json}" \
+cargo run -- --project sonar-cli scan \
+  --clippy-report "${SONAR_CLIPPY_REPORT:-clippy-report.json}" \
+  --coverage-report "${SONAR_COVERAGE_REPORT:-coverage.xml}" \
+  --no-scm \
+  --skip-unchanged \
+  --exclusions "**/*.json" \
+  --sources "src,tests,scripts" \
   "$@"

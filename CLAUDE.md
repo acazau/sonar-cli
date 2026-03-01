@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Standalone Rust CLI for SonarQube (reporting only, no scan execution). Binary-only crate.
+Standalone Rust CLI for SonarQube. Binary-only crate.
 
 ## Testing Rules
 

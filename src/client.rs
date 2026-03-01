@@ -27,6 +27,7 @@ pub struct IssueSearchParams<'a> {
     pub author: Option<&'a str>,
     pub assignees: Option<&'a str>,
     pub languages: Option<&'a str>,
+    pub in_new_code_period: Option<bool>,
 }
 
 /// Parameters for the rules search API
@@ -76,7 +77,7 @@ pub struct SonarQubeConfig {
 impl Default for SonarQubeConfig {
     fn default() -> Self {
         Self {
-            url: "http://localhost:9000".to_string(),
+            url: String::new(),
             token: None,
             timeout: Duration::from_secs(30),
             project_key: None,
@@ -222,6 +223,9 @@ impl SonarQubeClient {
         }
         if let Some(l) = params.languages {
             url.push_str(&format!("&languages={}", l));
+        }
+        if params.in_new_code_period == Some(true) {
+            url.push_str("&inNewCodePeriod=true");
         }
         self.get_json(&url).await
     }
@@ -433,6 +437,7 @@ impl SonarQubeClient {
         &self,
         project_key: &str,
         status_filter: Option<&str>,
+        in_new_code_period: bool,
     ) -> Result<Vec<SecurityHotspot>, SonarQubeError> {
         let mut all_hotspots = Vec::new();
         let mut page = 1;
@@ -440,7 +445,7 @@ impl SonarQubeClient {
         let status = status_filter.unwrap_or("TO_REVIEW");
 
         loop {
-            let url = format!(
+            let mut url = format!(
                 "{}/api/hotspots/search?projectKey={}&p={}&ps={}&status={}{}",
                 self.config.url,
                 project_key,
@@ -449,6 +454,9 @@ impl SonarQubeClient {
                 status,
                 self.branch_param()
             );
+            if in_new_code_period {
+                url.push_str("&inNewCodePeriod=true");
+            }
 
             let response: HotspotsResponse = self.get_json(&url).await?;
             let hotspots_count = response.hotspots.len();
@@ -731,7 +739,7 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = SonarQubeConfig::default();
-        assert_eq!(config.url, "http://localhost:9000");
+        assert_eq!(config.url, "");
         assert!(config.token.is_none());
         assert_eq!(config.timeout, Duration::from_secs(30));
     }
@@ -1764,7 +1772,7 @@ mod tests {
             None => return,
         };
 
-        let result = client.get_security_hotspots("proj", None).await;
+        let result = client.get_security_hotspots("proj", None, false).await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
@@ -1793,8 +1801,72 @@ mod tests {
             None => return,
         };
 
-        let result = client.get_security_hotspots("proj", Some("REVIEWED")).await;
+        let result = client.get_security_hotspots("proj", Some("REVIEWED"), false).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_search_issues_in_new_code_period() {
+        // Exercises inNewCodePeriod=true param on issues search
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/issues/search"))
+            .and(query_param("inNewCodePeriod", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total": 0,
+                "p": 1,
+                "ps": 100,
+                "paging": {"total": 0, "pageIndex": 1, "pageSize": 100},
+                "issues": []
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let params = IssueSearchParams {
+            in_new_code_period: Some(true),
+            ..Default::default()
+        };
+        let result = client.search_issues_with_params("proj", 1, 100, &params).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_security_hotspots_new_code_period() {
+        // Exercises inNewCodePeriod=true param on hotspots search
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/hotspots/search"))
+            .and(query_param("inNewCodePeriod", "true"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 0},
+                "hotspots": []
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_security_hotspots("proj", None, true).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1958,9 +2030,308 @@ mod tests {
             assignees: Some("bob"),
             languages: Some("rust"),
             statuses: Some("RESOLVED"),
+            in_new_code_period: None,
         };
 
         let result = client.search_issues_with_params("my-project", 1, 100, &params).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_sonar_error_display_http() {
+        // Exercises SonarQubeError::Http display formatting
+        let err = SonarQubeError::Http("connection refused".to_string());
+        assert!(err.to_string().contains("connection refused"));
+    }
+
+    #[tokio::test]
+    async fn test_sonar_error_display_api() {
+        // Exercises SonarQubeError::Api display formatting
+        let err = SonarQubeError::Api { status: 401, message: "Unauthorized".to_string() };
+        let s = err.to_string();
+        assert!(s.contains("401"));
+        assert!(s.contains("Unauthorized"));
+    }
+
+    #[tokio::test]
+    async fn test_sonar_error_display_deserialize() {
+        // Exercises SonarQubeError::Deserialize display formatting
+        let err = SonarQubeError::Deserialize("missing field".to_string());
+        assert!(err.to_string().contains("missing field"));
+    }
+
+    #[tokio::test]
+    async fn test_sonar_error_display_timeout() {
+        // Exercises SonarQubeError::Timeout display formatting
+        let err = SonarQubeError::Timeout;
+        assert!(err.to_string().contains("timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_sonar_error_display_analysis() {
+        // Exercises SonarQubeError::Analysis display formatting
+        let err = SonarQubeError::Analysis("pipeline failed".to_string());
+        assert!(err.to_string().contains("pipeline failed"));
+    }
+
+    #[tokio::test]
+    async fn test_config_with_branch() {
+        // Exercises SonarQubeConfig::with_branch builder method
+        let config = SonarQubeConfig::new("http://sonar.example.com")
+            .with_branch("feature/my-branch");
+        assert_eq!(config.branch, Some("feature/my-branch".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_files_with_duplications_filters_zero_dups() {
+        // Exercises get_files_with_duplications: files with duplicated_lines=0 are filtered out
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 2},
+                "components": [
+                    {
+                        "key": "proj:src/no_dups.rs",
+                        "path": "src/no_dups.rs",
+                        "measures": [
+                            {"metric": "duplicated_lines", "value": "0"},
+                            {"metric": "duplicated_lines_density", "value": "0.0"},
+                            {"metric": "duplicated_blocks", "value": "0"}
+                        ]
+                    },
+                    {
+                        "key": "proj:src/has_dups.rs",
+                        "path": "src/has_dups.rs",
+                        "measures": [
+                            {"metric": "duplicated_lines", "value": "25"},
+                            {"metric": "duplicated_lines_density", "value": "15.0"},
+                            {"metric": "duplicated_blocks", "value": "3"}
+                        ]
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_files_with_duplications("proj").await;
+        assert!(result.is_ok());
+        let files = result.unwrap();
+        // Only the file with duplicated_lines > 0 should be included
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].key, "proj:src/has_dups.rs");
+    }
+
+    #[tokio::test]
+    async fn test_get_files_with_duplications_no_metric_value() {
+        // Exercises get_files_with_duplications: file with no duplicated_lines measure is filtered out
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 1},
+                "components": [
+                    {
+                        "key": "proj:src/no_measure.rs",
+                        "path": "src/no_measure.rs",
+                        "measures": []
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_files_with_duplications("proj").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_component_tree_with_branch() {
+        // Exercises get_component_tree with branch parameter
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .and(query_param("branch", "main"))
+            .and(query_param("component", "proj"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 1},
+                "components": [
+                    {
+                        "key": "proj:src/lib.rs",
+                        "path": "src/lib.rs",
+                        "measures": [{"metric": "coverage", "value": "90.0"}]
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_branch("main");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client
+            .get_component_tree("proj", &["coverage"], 1, 100)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().components.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_analysis_timeout() {
+        // Exercises the Timeout error path: all responses return PENDING so we exhaust the timeout
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/ce/task"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "task": {
+                    "id": "task-timeout",
+                    "type": "REPORT",
+                    "status": "PENDING",
+                    "submittedAt": "2024-01-01T00:00:00+0000"
+                }
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri()).with_token("token");
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Use a very short timeout (100ms) and short poll interval (50ms) so this finishes quickly
+        let result = client
+            .wait_for_analysis(
+                "task-timeout",
+                Duration::from_millis(150),
+                Duration::from_millis(50),
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SonarQubeError::Timeout));
+    }
+
+    #[tokio::test]
+    async fn test_get_files_coverage_no_paging() {
+        // Exercises get_files_coverage when paging is None
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/measures/component_tree"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "components": [
+                    {
+                        "key": "proj:src/lib.rs",
+                        "path": "src/lib.rs",
+                        "measures": [
+                            {"metric": "coverage", "value": "75.0"},
+                            {"metric": "uncovered_lines", "value": "5"},
+                            {"metric": "lines_to_cover", "value": "20"}
+                        ]
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_files_coverage("proj").await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_search_projects_with_qualifier() {
+        // Exercises search_projects with a non-default qualifier (VW)
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/components/search"))
+            .and(query_param("qualifiers", "VW"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "paging": {"pageIndex": 1, "pageSize": 100, "total": 1},
+                "components": [{"key": "portfolio-1", "name": "My Portfolio"}]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_all_projects(None, Some("VW")).await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_status_plain_body_fallback() {
+        // Exercises get_status() when body is not JSON at all — returns raw body
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+
+        Mock::given(method("GET"))
+            .and(path("/api/system/status"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("STARTING"))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let client = match try_new_client(config) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let result = client.get_status().await;
+        assert!(result.is_ok());
+        let body = result.unwrap();
+        assert!(body.contains("STARTING") || !body.is_empty());
     }
 }

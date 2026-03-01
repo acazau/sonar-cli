@@ -111,18 +111,10 @@ pub async fn status(json: bool) -> i32 {
     }
 
     if json {
-        let obj = serde_json::json!({
-            "status": "configured",
-            "url": stored.url,
-            "token": stored.token.as_deref().map(mask_token),
-        });
+        let obj = serde_json::json!({"status": "configured"});
         print_json_value(&obj);
     } else {
-        println!("Stored credentials:");
-        print_credentials(&stored.url, &stored.token);
-        if let Some(p) = config::config_path() {
-            println!("  File:  {}", p.display());
-        }
+        println!("Credentials configured.");
     }
 
     0
@@ -485,5 +477,22 @@ mod tests {
             let _ = config::save(&backup);
         }
         assert_eq!(result, 0);
+    }
+
+    // ── login: both url and token None path ─────────────────────────────────
+
+    /// When both url and token are None, login exits early with code 1.
+    /// In the test environment stdin is closed (EOF), so prompt_stdin returns None
+    /// for both calls, exercising the "nothing to save" early return (lines 79-82).
+    #[tokio::test]
+    async fn test_login_both_none_returns_error_human() {
+        let result = login(None, None, false).await;
+        assert_eq!(result, 1);
+    }
+
+    #[tokio::test]
+    async fn test_login_both_none_returns_error_json() {
+        let result = login(None, None, true).await;
+        assert_eq!(result, 1);
     }
 }

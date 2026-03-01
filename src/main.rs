@@ -14,7 +14,9 @@ use client::{IssueSearchParams, SonarQubeConfig};
     name = "sonar-cli",
     version,
     about = "Standalone CLI for SonarQube — query issues, metrics, rules, and more",
-    long_about = "Standalone CLI for SonarQube — query issues, metrics, rules, and more.\n\n\
+    long_about = "Standalone CLI for SonarQube — scan, query issues, metrics, rules, and more.\n\n\
+        Run a scan:          sonar-cli --project KEY scan\n\
+        Scan and wait:       sonar-cli --project KEY scan --wait\n\
         Discover projects:   sonar-cli projects\n\
         Inspect a project:   sonar-cli --project KEY issues\n\
         Check quality gate:  sonar-cli --project KEY quality-gate\n\
@@ -27,12 +29,12 @@ use client::{IssueSearchParams, SonarQubeConfig};
         Use 'sonar-cli <command> --help' for detailed usage of each command."
 )]
 struct Cli {
-    /// SonarQube server URL [default: http://localhost:9000]
-    #[arg(long, env = "SONAR_HOST_URL", global = true)]
+    /// SonarQube server URL (or use `auth login`)
+    #[arg(long, global = true)]
     url: Option<String>,
 
     /// Authentication token
-    #[arg(long, env = "SONAR_TOKEN", global = true)]
+    #[arg(long, global = true)]
     token: Option<String>,
 
     /// Project key
@@ -141,6 +143,10 @@ enum Command {
         /// Language filter (comma-separated, e.g. java,py,js)
         #[arg(long)]
         language: Option<String>,
+
+        /// Only show issues in the new code period
+        #[arg(long)]
+        new_code: bool,
     },
 
     /// Get project metrics (requires --project)
@@ -201,6 +207,10 @@ enum Command {
         /// Status filter [default: TO_REVIEW] (TO_REVIEW, REVIEWED)
         #[arg(long)]
         status: Option<String>,
+
+        /// Only show hotspots in the new code period
+        #[arg(long)]
+        new_code: bool,
     },
 
     /// List and search projects on the server (no --project required)
@@ -276,6 +286,57 @@ enum Command {
         status: Option<String>,
     },
 
+    /// Run sonar-scanner and optionally wait for analysis (requires --project)
+    #[command(long_about = "Run sonar-scanner and optionally wait for analysis (requires --project).\n\n\
+        Reads stored credentials (from 'auth login') or CLI flags and passes them\n\
+        to sonar-scanner as -D properties. No env vars needed.\n\n\
+        Examples:\n  \
+          sonar-cli --project my-proj scan\n  \
+          sonar-cli --project my-proj scan --wait\n  \
+          sonar-cli --project my-proj scan --clippy-report clippy.json --coverage-report coverage.xml\n  \
+          sonar-cli --project my-proj scan --wait --timeout 600 -- -Dsonar.sources=src")]
+    Scan {
+        /// Path to clippy JSON report
+        #[arg(long)]
+        clippy_report: Option<String>,
+
+        /// Path to coverage XML report
+        #[arg(long)]
+        coverage_report: Option<String>,
+
+        /// Wait for analysis to complete after scan
+        #[arg(long)]
+        wait: bool,
+
+        /// Max wait time in seconds (used with --wait)
+        #[arg(long, default_value = "300")]
+        wait_timeout: u64,
+
+        /// Poll interval in seconds (used with --wait)
+        #[arg(long, default_value = "5")]
+        poll_interval: u64,
+
+        /// Disable SCM blame analysis (faster scans)
+        #[arg(long)]
+        no_scm: bool,
+
+        /// Skip analysis of unchanged files
+        #[arg(long)]
+        skip_unchanged: bool,
+
+        /// File exclusion patterns (comma-separated globs)
+        #[arg(long)]
+        exclusions: Option<String>,
+
+        /// Source directories (comma-separated, e.g. src,tests,scripts)
+        #[arg(long)]
+        sources: Option<String>,
+
+        /// Extra arguments passed to sonar-scanner
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
+    },
+
     /// View source code of a file on the server (no --project required)
     #[command(long_about = "View source code of a file on the server (no --project required).\n\n\
         Retrieves the source code as stored in SonarQube. The component key is\n\
@@ -325,7 +386,7 @@ enum Command {
     #[command(long_about = "Manage stored credentials for SonarQube.\n\n\
         Credentials are saved to a global config file so you don't need to\n\
         pass --url/--token or set env vars for every command.\n\n\
-        Priority: CLI flags > env vars > config file > defaults\n\n\
+        Priority: CLI flags > config file > defaults\n\n\
         Examples:\n  \
           sonar-cli auth login --url https://sonar.example.com --token squ_abc123\n  \
           sonar-cli auth status\n  \
@@ -362,7 +423,10 @@ impl Cli {
 
         let url = self.url.clone()
             .or(stored.url)
-            .unwrap_or_else(|| "http://localhost:9000".to_string());
+            .unwrap_or_else(|| {
+                eprintln!("URL is required. Use --url, or run `sonar-cli auth login`.");
+                std::process::exit(1);
+            });
 
         let mut config = SonarQubeConfig::new(&url)
             .with_timeout(std::time::Duration::from_secs(self.timeout));
@@ -420,7 +484,6 @@ fn project_or_exit(project: &Option<String>) -> &str {
 
 #[tokio::main]
 async fn main() {
-    let _ = dotenvy::dotenv();
     let cli = Cli::parse();
 
     init_tracing(cli.verbose);
@@ -455,10 +518,12 @@ async fn main() {
             ref author,
             ref assignee,
             ref language,
+            new_code,
         } => {
             let project = project_or_exit(&cli.project);
             let severities = commands::issues::build_severity_filter(severity.as_deref());
             let types = issue_type.as_ref().map(|t| t.to_uppercase());
+            let in_new_code = if new_code { Some(true) } else { None };
             let search_params = IssueSearchParams {
                 severities: severities.as_deref(),
                 types: types.as_deref(),
@@ -471,6 +536,7 @@ async fn main() {
                 author: author.as_deref(),
                 assignees: assignee.as_deref(),
                 languages: language.as_deref(),
+                in_new_code_period: in_new_code,
             };
             commands::issues::run(config, project, &search_params, limit, cli.json).await
         }
@@ -493,9 +559,9 @@ async fn main() {
             commands::duplications::run(config, project, details, cli.json).await
         }
 
-        Command::Hotspots { ref status } => {
+        Command::Hotspots { ref status, new_code } => {
             let project = project_or_exit(&cli.project);
-            commands::hotspots::run(config, project, status.as_deref(), cli.json).await
+            commands::hotspots::run(config, project, status.as_deref(), new_code, cli.json).await
         }
 
         Command::Projects {
@@ -540,6 +606,35 @@ async fn main() {
                 cli.json,
             )
             .await
+        }
+
+        Command::Scan {
+            ref clippy_report,
+            ref coverage_report,
+            wait,
+            wait_timeout,
+            poll_interval,
+            no_scm,
+            skip_unchanged,
+            ref exclusions,
+            ref sources,
+            ref extra,
+        } => {
+            let project = project_or_exit(&cli.project);
+            let params = commands::scan::ScanParams {
+                clippy_report: clippy_report.clone(),
+                coverage_report: coverage_report.clone(),
+                wait,
+                timeout: wait_timeout,
+                poll_interval,
+                no_scm,
+                skip_unchanged,
+                exclusions: exclusions.clone(),
+                sources: sources.clone(),
+                extra: extra.clone(),
+                json: cli.json,
+            };
+            commands::scan::run(config, project, params).await
         }
 
         Command::Source {

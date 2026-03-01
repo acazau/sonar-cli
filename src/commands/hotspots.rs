@@ -5,6 +5,7 @@ pub async fn run(
     config: SonarQubeConfig,
     project: &str,
     status: Option<&str>,
+    new_code: bool,
     json: bool,
 ) -> i32 {
     let client = match SonarQubeClient::new(config) {
@@ -15,7 +16,7 @@ pub async fn run(
         }
     };
 
-    match client.get_security_hotspots(project, status).await {
+    match client.get_security_hotspots(project, status, new_code).await {
         Ok(hotspots) => {
             output::print_hotspots(&hotspots, project, json);
             0
@@ -80,7 +81,7 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let exit = run(config, "my-proj", None, false).await;
+        let exit = run(config, "my-proj", None, false, false).await;
         assert_eq!(exit, 0);
     }
 
@@ -97,7 +98,7 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let exit = run(config, "my-proj", Some("TO_REVIEW"), true).await;
+        let exit = run(config, "my-proj", Some("TO_REVIEW"), false, true).await;
         assert_eq!(exit, 0);
     }
 
@@ -114,7 +115,42 @@ mod tests {
             .await;
 
         let config = SonarQubeConfig::new(mock_server.uri());
-        let exit = run(config, "my-proj", None, false).await;
+        let exit = run(config, "my-proj", None, false, false).await;
         assert_eq!(exit, 1);
     }
+
+    #[tokio::test]
+    async fn test_run_hotspots_new_code() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/hotspots/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(hotspots_body()))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj", None, true, false).await;
+        assert_eq!(exit, 0);
+    }
+
+    #[tokio::test]
+    async fn test_run_hotspots_with_results_text() {
+        let mock_server = match try_mock_server().await {
+            Some(s) => s,
+            None => return,
+        };
+        Mock::given(method("GET"))
+            .and(path("/api/hotspots/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(hotspots_body()))
+            .mount(&mock_server)
+            .await;
+
+        let config = SonarQubeConfig::new(mock_server.uri());
+        let exit = run(config, "my-proj", Some("TO_REVIEW"), false, false).await;
+        assert_eq!(exit, 0);
+    }
+
 }
