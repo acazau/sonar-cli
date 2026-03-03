@@ -12,14 +12,14 @@ You are a SonarQube scan agent for a Rust project. Run the scan, extract the ana
 ## Instructions
 
 1. Read your assigned task using `TaskGet` to get the scope.
-2. Extract `REPORT_DIR` from the task description (the value after `Report path:`). This is an absolute path like `/.../iter-1/sonar-scan/`. Derive the iteration root: `ITER_ROOT="$(dirname "$REPORT_DIR")"` (strips the trailing `sonar-scan/`).
-3. Look for reports produced by sibling agents under `$ITER_ROOT` and build the scan command:
-   - Check for `$ITER_ROOT/clippy/clippy-report.json` and `$ITER_ROOT/tests/coverage.xml`
+2. Extract `REPORT_DIR` from the task description (the value after `Report path:`). This is an absolute path like `/.../reports/20260302-194119/sonar-scan/`. Derive the report root: `REPORT_ROOT="$(dirname "$REPORT_DIR")"` (strips the trailing `sonar-scan/`).
+3. Look for reports produced by sibling agents under `$REPORT_ROOT` and build the scan command:
+   - Check for `$REPORT_ROOT/clippy/clippy-report.json` and `$REPORT_ROOT/tests/coverage.xml`
    - Build the scan command using the CLI:
      ```
      cargo run -- --project sonar-cli scan \
-       --clippy-report "$ITER_ROOT/clippy/clippy-report.json" \
-       --coverage-report "$ITER_ROOT/tests/coverage.xml" \
+       --clippy-report "$REPORT_ROOT/clippy/clippy-report.json" \
+       --coverage-report "$REPORT_ROOT/tests/coverage.xml" \
        --no-scm \
        --skip-unchanged \
        --exclusions "**/*.json" \

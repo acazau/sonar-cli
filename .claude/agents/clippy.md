@@ -17,7 +17,9 @@ You are a clippy fixer agent for a Rust project. You work in an **isolated git w
 3. Fix up to 5 warnings. For each, read the file, understand the suggestion, and apply the idiomatic fix. Do NOT add `#[allow(...)]` or any suppression attributes — fix the root cause.
 4. Generate a clippy JSON report for SonarQube:
    - Extract `REPORT_DIR` from the task description (the value after `Report path:`). This is an absolute path.
-   - `mkdir -p "$REPORT_DIR" && cargo clippy --message-format=json > "$REPORT_DIR/clippy-report.json" 2>&1`
+   - `mkdir -p "$REPORT_DIR"`
+   - `cargo clippy --message-format=json > "$REPORT_DIR/clippy-report.json" 2>&1`
+   - Run these as **separate Bash calls** — do NOT chain with `&&`.
 5. Mark your task as completed using `TaskUpdate`.
 6. Message the orchestrator with warnings fixed, remaining count, and any issues encountered.
 

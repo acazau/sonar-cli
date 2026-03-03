@@ -23,6 +23,9 @@
       "Bash(git add:*)",
       "Bash(git worktree:*)",
       "Bash(git commit:*)",
+      "Bash(git ls-files:*)",
+      "Bash(mkdir:*)",
+      "Bash(sort:*)",
       "Edit",
       "Write"
     ],

@@ -1,7 +1,7 @@
 ---
 name: coverage
 description: Write tests to improve code coverage based on SonarQube data. Runs in an isolated worktree.
-tools: Bash, Read, Edit, Glob, Grep, TaskGet, TaskUpdate, SendMessage
+tools: Bash, Read, Write, Edit, Glob, Grep, TaskGet, TaskUpdate, SendMessage
 isolation: worktree
 model: sonnet
 permissionMode: dontAsk

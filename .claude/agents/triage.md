@@ -57,3 +57,4 @@ You are a triage agent for a Rust + SonarQube project. After a sonar scan comple
 - Do NOT fix anything. Your job is data gathering and triage only.
 - Do NOT use Python. Use `jq`, `cargo run`, shell tools, or Read/Grep/Glob.
 - When working in the quality-fix team, query SonarQube data using `cargo run -- --project <key> --branch <branch> <command> --json`.
+- **No Bash for text output.** Never use `cat`, `echo`, or heredocs to display text. Just write text directly in your response or pass it to `SendMessage`.
