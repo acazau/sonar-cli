@@ -14,6 +14,7 @@ You are a quality fix orchestrator for a Rust + SonarQube project. You run build
 - **`--full` mode**: Fix ALL open issues even if the quality gate passes — the gate only checks *new* violations.
 - **No worktree on Agent calls** — fix agents declare `isolation: "worktree"` themselves.
 - **Prefer dedicated tools.** Use `Glob` instead of `ls`, `Read` instead of `cat`, `Grep` instead of `grep`. Use `git branch --show-current` (covered by settings) instead of `git rev-parse`. Only use Bash for commands that have no tool equivalent (git merge, mkdir, sort, etc.).
+- **No compound Bash commands in agent prompts.** When writing agent prompts, never include `| tee`, `echo "EXIT_CODE"`, or multi-statement chains involving commands that are not in the allow list (`tee`, `echo`, etc.). Agents must run commands plainly (e.g. `cargo run -- ...`) and use the `Write` tool to persist output to files. Violating this causes permission prompts for the user.
 
 
 ## Shared Procedures
