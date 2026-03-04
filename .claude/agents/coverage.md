@@ -19,9 +19,8 @@ You are a coverage improvement agent for a Rust project. You work in an **isolat
    ```
 3. Filter the output to your scope (changed files list from the orchestrator's prompt). The orchestrator provides a triage hint with key files and their coverage percentages — use it to prioritize, but check the full filtered output for completeness.
 4. For each uncovered file (up to 5 files per run), read the production code and write tests targeting uncovered lines.
-5. Verify all tests pass: `cargo test`
-6. Mark your task as completed using `TaskUpdate`.
-7. Message the orchestrator with files covered, new test count, and any issues encountered.
+5. Mark your task as completed using `TaskUpdate`.
+6. Message the orchestrator with files covered, new test count, and any issues encountered.
 
 ## Rules
 

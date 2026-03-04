@@ -1,10 +1,14 @@
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(clap::Args)]
 pub struct SonarScanArgs {
     /// Root report directory to look for clippy/coverage report files
     #[arg(long)]
     pub report_root: Option<String>,
+    /// Timeout in seconds (default: 600). Exit code 124 on timeout.
+    #[arg(long, default_value = "600")]
+    pub timeout: u64,
     /// Extra arguments forwarded to `cargo run -- scan`
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub extra: Vec<String>,
@@ -56,8 +60,30 @@ pub fn build_sonar_scan_command(report_root: Option<&str>, extra: &[String]) -> 
 pub fn sonar_scan(args: &SonarScanArgs) {
     let mut cmd = build_sonar_scan_command(args.report_root.as_deref(), &args.extra);
     cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-    let status = cmd.status().expect("failed to run cargo run -- scan");
-    std::process::exit(status.code().unwrap_or(1));
+    let mut child = cmd.spawn().expect("failed to run cargo run -- scan");
+    let timeout = Duration::from_secs(args.timeout);
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => std::process::exit(status.code().unwrap_or(1)),
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    eprintln!(
+                        "Error: sonar scan timed out after {} seconds",
+                        args.timeout
+                    );
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    std::process::exit(124);
+                }
+                std::thread::sleep(Duration::from_secs(1));
+            }
+            Err(e) => {
+                eprintln!("Error: failed to wait for sonar scan: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
 }
 
 pub fn build_docker_scan_command(
