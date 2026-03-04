@@ -328,7 +328,7 @@ enum Command {
         #[arg(long)]
         exclusions: Option<String>,
 
-        /// Source directories (comma-separated, e.g. src,tests,scripts)
+        /// Source directories (comma-separated, e.g. src,tests)
         #[arg(long)]
         sources: Option<String>,
 

@@ -28,7 +28,7 @@ Filter the output to your scope (changed files list from the orchestrator's prom
 
 ## Rules
 
-- **NEVER use Bash to modify source files.** No `sed`, `awk`, `python`, `echo >`, or shell redirection for code changes. Every code modification MUST go through the Edit tool. Violations produce broken diffs and corrupt worktree merges.
+- **Every code change MUST use the Edit tool.** Every file read MUST use the Read tool. Never use Bash (`cat`, `head`, `python`, `sed`, `awk`, `echo >`, shell redirection, pipes) to read or modify any file — source, report, or otherwise.
 - Do NOT add `// NOSONAR`, `#[allow(...)]`, or any suppression comments/attributes.
 - Do not change public API signatures unless the issue requires it.
 - **Tests MUST NOT rely on external dependencies** — no real network calls, no connecting to unreachable servers. Use `wiremock` mock servers for HTTP tests. Integration tests in `tests/` must be fully offline.

@@ -89,6 +89,13 @@ sonar-cli --project my-proj hotspots --status REVIEWED
 ### Analysis commands
 
 ```bash
+# Run sonar-scanner using stored credentials (no env vars needed)
+sonar-cli --project my-proj scan
+sonar-cli --project my-proj scan --wait
+sonar-cli --project my-proj scan --clippy-report clippy.json --coverage-report coverage.xml
+sonar-cli --project my-proj scan --no-scm --skip-unchanged
+sonar-cli --project my-proj scan --wait --timeout 600 -- -Dsonar.verbose=true
+
 # Wait for a background analysis task to complete
 sonar-cli wait <TASK_ID>
 sonar-cli wait <TASK_ID> --timeout 600 --poll-interval 10
@@ -127,13 +134,13 @@ SonarQube will be available at `http://localhost:9000` (default credentials: `ad
 
 1. Log in and create a project (Projects → Create Project → Manually)
 2. Generate an authentication token (My Account → Security → Generate Token)
-3. Create a `.env` file in the project root:
+3. Store credentials with `sonar-cli`:
 
+   ```bash
+   sonar-cli auth login --url http://localhost:9000 --token <your-token>
    ```
-   SONAR_HOST_URL=http://localhost:9000
-   SONAR_TOKEN=<your-token>
-   SONAR_PROJECT_KEY=<your-project-key>
-   ```
+
+   Credentials are saved globally — no env vars or `.env` file needed for subsequent commands.
 
 ### Running a scan
 
@@ -141,13 +148,14 @@ SonarQube will be available at `http://localhost:9000` (default credentials: `ad
 
 ```bash
 brew install sonar-scanner
-./scripts/scan.sh
+sonar-cli --project my-proj scan
+sonar-cli --project my-proj scan --wait   # block until analysis completes
 ```
 
-**Docker (reference)** — uses the `sonarsource/sonar-scanner-cli` image:
+**Docker (reference)** — uses the `sonarsource/sonar-scanner-cli` image (reads `SONAR_HOST_URL`, `SONAR_TOKEN`, `SONAR_PROJECT_KEY` from env):
 
 ```bash
-./scripts/docker-scan.sh
+cargo xtask docker-scan
 ```
 
 ### Branch analysis
@@ -161,7 +169,7 @@ sonar-cli --project my-proj --branch feature-x quality-gate
 
 ## Claude Quality Sweep Workflow
 
-This project includes a Claude Code agent (`/quality-fix`) that scans for issues and auto-fixes them using parallel agents in isolated git worktrees.
+This project includes a Claude Code agent (`/quality-fix`) that auto-fixes code quality issues using parallel agents in isolated git worktrees.
 
 - `/quality-fix` — scan changed files only (default)
 - `/quality-fix --full` — scan all files (tech debt cleanup)
@@ -173,112 +181,63 @@ This project includes a Claude Code agent (`/quality-fix`) that scans for issues
                      │
                      ▼
              ┌───────────────┐
-             │ Determine     │── --full ──→ All .rs files
-             │ Scope         │── default ─→ git diff changed files
+             │ Scope         │── --full ──→ All .rs files
+             │               │── default ─→ changed files
              └───────┬───────┘
                      │
         ═════════════╪═════════════
-        ║  PHASE 1: VALIDATE      ║
+        ║  PHASE 1: BUILD & TEST  ║
+        ═════════════╪═════════════
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+   ┌─────────────┐       ┌─────────────┐
+   │   clippy    │       │    tests    │
+   │  (worktree) │       │  (worktree) │
+   └──────┬──────┘       └──────┬──────┘
+          │                     │
+          └──────────┬──────────┘
+                     ▼
+             Merge fixes (if any)
+                     │
+        ═════════════╪═════════════
+        ║  PHASE 2: SCAN & TRIAGE ║
         ═════════════╪═════════════
                      ▼
-             ┌───────────────┐  ≤3 trivial?
-             │ Clippy        │─────────────→ Fix inline
+             ┌───────────────┐
+             │  sonar-scan   │ → analysis task ID
              └───────┬───────┘
-                     │ pass
-                     ▼
-             ┌───────────────┐  ≤2 trivial?
-             │ Tests         │─────────────→ Fix inline
-             └───────┬───────┘
-                     │ pass
                      ▼
              ┌───────────────┐
-             │ Coverage      │ cargo llvm-cov → coverage.xml
+             │    triage     │ wait + query all metrics
              └───────┬───────┘
                      │
-                     ▼
-             ┌───────────────┐
-             │ Sonar Scan    │ → /scan
-             └───────┬───────┘
-                     │
-                     ▼
-             ┌───────────────┐
-             │ Report        │ → /report
-             └───────┬───────┘
-                     │
-                     ▼
-              ╔═════════════╗
-              ║ Gate passed?║
-              ╚══════╤══════╝
-            yes      │     no
-         ┌───────────┴──────────┐
-         ▼                      ▼
-  ┌────────────┐   ═════════════╪═══════════════
-  │ Done       │   ║  PHASE 2: TRIAGE & FIX    ║
-  └────────────┘   ═════════════╪═══════════════
-                                ▼
-                   ┌────────────────────────────┐
-                   │ Gather JSON data           │
-                   │ duplications/issues/cov    │
-                   │ (filtered to scope)        │
-                   └───────────┬────────────────┘
-                               │
-                               ▼
-                   ┌────────────────────────────┐
-                   │ TeamCreate "quality-fix"    │
-                   │ TaskCreate per category    │
-                   └───────────┬────────────────┘
-                               │
-                ┌──────────────┼──────────────┐
-                │              │              │
-                ▼              ▼              ▼
-       ┌──────────────┐ ┌───────────┐ ┌────────────┐
-       │ WORKTREE A   │ │WORKTREE B │ │ WORKTREE C │
-       │              │ │           │ │            │
-       │              │ │           │ │            │
-       │ duplications │ │ issues    │ │ coverage   │
-       │              │ │ Bugs,     │ │ Add tests  │
-       │ Extract      │ │ smells,   │ │ for files  │
-       │ helpers      │ │ vulns     │ │ below 70%  │
-       └──────┬───────┘ └─────┬─────┘ └─────┬──────┘
-              │               │              │
-              └───────┬───────┴──────┬───────┘
-                      ▼              │
-         ┌─────────────────────────┐ │
-         │ Merge branches in order │◄┘
-         │ 1. duplications (structural)
-         │ 2. issues (code fixes)
-         │ 3. coverage (tests)
-         └────────────┬────────────┘
-                      │
-         ═════════════╪═════════════
-         ║  PHASE 3: RE-VALIDATE   ║
-         ═════════════╪═════════════
-                      │
-                      ▼
-               ╔═════════════╗
-               ║ Gate passed?║
-               ╚══════╤══════╝
-             yes      │      no
-         ┌────────────┴───────────┐
-         ▼                        ▼
-  ┌──────────────┐        ╔═════════════╗
-  │ Shutdown     │        ║ iter < 3?   ║
-  │ team & done  │        ╚══════╤══════╝
-  └──────────────┘       yes     │    no
-                     ┌───────────┴──────────┐
-                     ▼                      ▼
-              Loop back to          ┌──────────────┐
-              PHASE 2               │ Shutdown     │
-                                    │ & report     │
-                                    │ remaining    │
-                                    └──────────────┘
+          ┌──────────┴─────────────────┐
+          │   Spawn per triage hint    │
+          ▼          ▼         ▼       ▼
+   ┌──────────┐ ┌────────┐ ┌──────┐ ┌──────────┐
+   │  issues  │ │  dups  │ │ cov  │ │hotspots  │
+   │(worktree)│ │(wktree)│ │(wkt) │ │(worktree)│
+   └────┬─────┘ └───┬────┘ └──┬───┘ └────┬─────┘
+        └───────────┴─────────┴──────────┘
+                          │
+                          ▼
+              Merge in order: dups → issues
+                  → hotspots → coverage
+                          │
+        ════════════════════════════════
+        ║         PHASE 3: SHUTDOWN   ║
+        ════════════════════════════════
+                          │
+                          ▼
+                   Final report
 ```
 
 ## Development
 
 ```bash
 cargo build          # Debug build
-cargo test           # Run tests (19 tests)
+cargo test           # Run tests
 cargo clippy         # Lint
 cargo fmt            # Format
 ```

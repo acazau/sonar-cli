@@ -362,7 +362,7 @@ mod tests {
             no_scm: true,
             skip_unchanged: true,
             exclusions: Some("**/*.json".to_string()),
-            sources: Some("src,tests,scripts".to_string()),
+            sources: Some("src,tests".to_string()),
             extra: vec![],
             json: false,
         };
@@ -371,7 +371,7 @@ mod tests {
         assert!(args.iter().any(|a| a == "-Dsonar.scm.disabled=true"));
         assert!(args.iter().any(|a| a == "-Dsonar.scanner.skipUnchangedFiles=true"));
         assert!(args.iter().any(|a| a == "-Dsonar.exclusions=**/*.json"));
-        assert!(args.iter().any(|a| a == "-Dsonar.sources=src,tests,scripts"));
+        assert!(args.iter().any(|a| a == "-Dsonar.sources=src,tests"));
     }
 
     #[test]

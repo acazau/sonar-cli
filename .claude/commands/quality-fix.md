@@ -9,7 +9,7 @@ You are a quality fix orchestrator for a Rust + SonarQube project. You run build
 ## Rules
 
 - **No Python.** Use `jq`, `cargo run`, shell tools, or Read/Grep/Glob for all data processing.
-- **No direct detection.** Do not run `cargo clippy`, `cargo test`, or scan scripts (`./scripts/scan.sh`, `./scripts/docker-scan.sh`) in the orchestrator.
+- **No direct detection.** Do not run `cargo clippy`, `cargo test`, `cargo xtask sonar-scan`, or `cargo xtask docker-scan` in the orchestrator.
 - **Fallback.** If a sonar-scan agent's task is `completed` but you didn't receive its `SendMessage` (which must contain the task ID and branch), ask the user whether to re-spawn or skip to shutdown.
 - **`--full` mode**: Fix ALL open issues even if the quality gate passes — the gate only checks *new* violations.
 - **No worktree on Agent calls** — fix agents declare `isolation: "worktree"` themselves.
@@ -54,21 +54,21 @@ Parse `$ARGUMENTS` for:
 ## Report Directory
 
 ```bash
-REPORT_ROOT="$(pwd)/reports/$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$REPORT_ROOT"
+REPORT_ROOT="$(cargo xtask setup-reports)"
 ```
 
-Each agent writes to `$REPORT_ROOT/<agent-name>/`. Absolute path so worktree agents write to the main tree.
+This creates `$REPORT_ROOT`. Absolute path so worktree agents write to the main tree. Each agent's xtask command creates its own subdirectory.
 
 ## Scope
 
-- **Default**: Changed AND untracked `.rs` files — combine `git diff --name-only HEAD~1` (or `git diff --name-only main` on feature branch) with `git ls-files --others --exclude-standard '*.rs'`, deduplicate with `sort -u`.
-- **`--full`**: All files.
+- **Default**: Changed AND untracked `.rs` files — `cargo xtask scope`
+- **`--full`**: All files — `cargo xtask scope --full`
+- **Exclude**: Remove `xtask/` paths from scope — dev tooling, not production code.
 
 ## Phase 1: Setup
 
 1. `TeamCreate("quality-fix")`
-2. `TaskCreate` for **clippy** and **tests** agents with scope and report path.
+2. `TaskCreate` for **clippy** and **tests** agents with scope. Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT" }` for both.
 
 ## Phase 2: Build/Test Agents (Clippy + Tests)
 
@@ -90,7 +90,7 @@ If neither agent made changes → continue to Phase 3 anyway.
 
 ### Step 1: Create Task & Spawn Agent
 
-`TaskCreate`: "Run sonar scan and return task ID. The scanner always scans all files — scope filtering happens at triage time. Report path: $REPORT_ROOT/sonar-scan/"
+`TaskCreate`: "Run sonar scan and return task ID. The scanner always scans all files — scope filtering happens at triage time." Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT" }`.
 
 Spawn: `subagent_type: "sonar-scan"`, `team_name: "quality-fix"`. Prompt with scope, task ID, reminder to message when done. Add to `ACTIVE_AGENTS`.
 

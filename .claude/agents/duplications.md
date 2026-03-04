@@ -27,7 +27,7 @@ Filter the output to your scope (changed files list from the orchestrator's prom
 
 ## Rules
 
-- **NEVER use Bash to modify source files.** No `sed`, `awk`, `python`, `echo >`, or shell redirection for code changes. Every code modification MUST go through the Edit tool. Violations produce broken diffs and corrupt worktree merges.
+- **Every code change MUST use the Edit tool.** Every file read MUST use the Read tool. Never use Bash (`cat`, `head`, `python`, `sed`, `awk`, `echo >`, shell redirection, pipes) to read or modify any file — source, report, or otherwise.
 - Keep extracted helpers focused and minimal — do not over-abstract.
 - Do not change public API signatures.
 - Do not modify test code unless your refactoring breaks a test.
