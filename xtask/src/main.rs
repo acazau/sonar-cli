@@ -3,6 +3,7 @@ mod coverage;
 mod git;
 mod scan;
 mod setup;
+mod triage;
 
 use clap::{Parser, Subcommand};
 
@@ -22,11 +23,13 @@ enum Cmd {
     /// Run clippy and write a JSON report for SonarQube
     ClippyReport(ReportRootArgs),
     /// Run tests with coverage and write a Cobertura XML report for SonarQube
-    TestReport(ReportRootArgs),
+    TestReport(coverage::TestReportArgs),
     /// Run SonarQube scan with auto-detected reports and project defaults
     SonarScan(scan::SonarScanArgs),
     /// Run SonarQube scan inside a Docker container (sonarsource/sonar-scanner-cli)
     DockerScan(scan::DockerScanArgs),
+    /// Wait for SonarQube analysis and collect triage data to JSON files
+    Triage(triage::TriageArgs),
 }
 
 #[derive(clap::Args)]
@@ -45,5 +48,6 @@ fn main() {
         Cmd::TestReport(args) => coverage::test_report(args),
         Cmd::SonarScan(args) => scan::sonar_scan(args),
         Cmd::DockerScan(args) => scan::docker_scan(args),
+        Cmd::Triage(args) => triage::triage(args),
     }
 }

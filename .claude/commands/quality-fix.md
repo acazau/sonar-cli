@@ -1,7 +1,7 @@
 ---
 description: "Quality fix — scans for issues, auto-fixes, and validates."
 allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, TeamCreate, TeamDelete, SendMessage, TaskCreate, TaskUpdate, TaskList, TaskGet
-argument-hint: "[--full]"
+argument-hint: "[--full] [--iterations N]"
 ---
 
 You are a quality fix orchestrator for a Rust + SonarQube project. You run build/test agents first, merge their fixes, then scan clean code with sonar. After scanning, a triage agent gathers data and sends a compact summary. You spawn fix agents based on that summary — each fix agent queries SonarQube for its own detailed data. The orchestrator does NOT run `cargo clippy`, `cargo test`, scan scripts, or SonarQube CLI queries itself — all detection and data gathering is delegated to agents.
@@ -50,6 +50,7 @@ Maintain an `ACTIVE_AGENTS` list (initially empty). Append on spawn, remove on c
 Parse `$ARGUMENTS` for:
 
 - **`--full`**: Review all files instead of just changed files.
+- **`--iterations N`** (default: 1): Maximum number of fix cycles. Each iteration runs Phases 2-4 (clippy/tests → scan/triage → fix). Stops early if triage reports zero issues.
 
 ## Report Directory
 
@@ -64,21 +65,35 @@ This creates `$REPORT_ROOT`. Absolute path so worktree agents write to the main 
 - **Default**: Changed AND untracked `.rs` files — `cargo xtask scope`
 - **`--full`**: All files — `cargo xtask scope --full`
 - **Exclude**: Remove `xtask/` paths from scope — dev tooling, not production code.
+- **Persist**: Write the final scope list to `$REPORT_ROOT/scope.txt` using the `Write` tool (one file path per line). This file is used by the triage agent for filtering.
 
 ## Phase 1: Setup
 
 1. `TeamCreate("quality-fix")`
 2. `TaskCreate` for **clippy** and **tests** agents with scope. Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT" }` for both.
 
-## Phase 2: Build/Test Agents (Clippy + Tests)
+## Fix Cycle (repeats up to N iterations)
+
+Set `ITERATION = 1` and `MAX_ITERATIONS = N` (from `--iterations`, default 1).
+
+At the **top of each iteration**:
+1. Create iteration report subdirectory: `mkdir -p $REPORT_ROOT/iter-$ITERATION`
+2. Log: "Starting iteration $ITERATION of $MAX_ITERATIONS"
+
+### Phase 2: Build/Test Agents (Clippy + Tests)
 
 Spawn both in a **single message**:
 
 1. **clippy**: `subagent_type: "clippy"`, `team_name: "quality-fix"`
 2. **tests**: `subagent_type: "tests"`, `team_name: "quality-fix"`
-Prompt each with: scope, task ID, reminder to mark task completed and message orchestrator. Add both to `ACTIVE_AGENTS`.
+Prompt each with: scope, task ID, iteration report dir (`$REPORT_ROOT/iter-$ITERATION`), reminder to mark task completed and message orchestrator. Add both to `ACTIVE_AGENTS`.
 
-### Wait & Merge
+- **clippy agent**: run `cargo xtask clippy-report --report-root $REPORT_ROOT/iter-$ITERATION` (generates `clippy/clippy-report.json`; exits non-zero on warnings). Fix any warnings, then re-run to produce a clean report file before messaging the orchestrator.
+- **tests agent**: run `cargo xtask test-report --report-root $REPORT_ROOT/iter-$ITERATION` (generates `tests/coverage.xml`; exits non-zero on test failures). Fix any failures, then re-run to produce a clean coverage file before messaging the orchestrator.
+
+Both report files **must exist** under `$REPORT_ROOT/iter-$ITERATION` before the sonar-scan agent runs, so that coverage and clippy data are included in the SonarQube analysis.
+
+#### Wait & Merge
 
 Follow the **Wait Procedure** for both agents. Then **Merge Procedure** in order:
 1. `clippy` branch first (compiler-level fixes)
@@ -86,29 +101,29 @@ Follow the **Wait Procedure** for both agents. Then **Merge Procedure** in order
 
 If neither agent made changes → continue to Phase 3 anyway.
 
-## Phase 3: Sonar Scan & Triage
+### Phase 3: Sonar Scan & Triage
 
-### Step 1: Create Task & Spawn Agent
+#### Step 1: Create Task & Spawn Agent
 
-`TaskCreate`: "Run sonar scan and return task ID. The scanner always scans all files — scope filtering happens at triage time." Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT" }`.
+`TaskCreate`: "Run sonar scan and return task ID. The scanner always scans all files — scope filtering happens at triage time." Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT/iter-$ITERATION" }`.
 
 Spawn: `subagent_type: "sonar-scan"`, `team_name: "quality-fix"`. Prompt with scope, task ID, reminder to message when done. Add to `ACTIVE_AGENTS`.
 
-### Step 2: Wait for Scan
+#### Step 2: Wait for Scan
 
 Follow the **Wait Procedure**.
 
 **If sonar-scan fails or returns no task ID:** report failure, skip to Phase 5 (Shutdown).
 
-### Step 3: Spawn Triage Agent
+#### Step 3: Spawn Triage Agent
 
-`TaskCreate` with: project key, branch, scope (changed files list), `Mode: scoped` (default) or `Mode: full` (when `--full`), and **analysis task ID** from the sonar-scan agent's message.
+`TaskCreate` with: project key, branch, `Mode: scoped` (default) or `Mode: full` (when `--full`), and **analysis task ID** from the sonar-scan agent's message. Pass structured metadata: `metadata: { "report_root": "$REPORT_ROOT/iter-$ITERATION", "scope_file": "$REPORT_ROOT/scope.txt" }`.
 
-Spawn: `subagent_type: "triage"`, `team_name: "quality-fix"`. Prompt with task ID, reminder to mark task completed and message orchestrator. Add to `ACTIVE_AGENTS`.
+Spawn: `subagent_type: "triage"`, `team_name: "quality-fix"`. Prompt with task ID, reminder to run `cargo xtask triage` with the parameters from task metadata, mark task completed and message orchestrator. Add to `ACTIVE_AGENTS`.
 
 Follow the **Wait Procedure**.
 
-### Step 4: Spawn Fix Agents
+#### Step 4: Spawn Fix Agents
 
 Read the triage agent's summary message. For each category it says to **spawn**, `TaskCreate` then spawn agents in a **single message**:
 
@@ -127,9 +142,9 @@ In each agent's prompt include:
 5. Reminder to mark task completed and message orchestrator
 6. **Tests MUST NOT rely on external dependencies** — no real network calls, no `127.0.0.1:1`. Unit tests use `wiremock`. Integration tests (`tests/`) must be fully offline.
 
-If the triage summary says all categories are skipped, skip to Phase 5 (Shutdown).
+**Early exit**: If the triage summary says all categories are skipped, log "All clean — stopping after iteration $ITERATION" and break out of the loop → proceed to Phase 5.
 
-## Phase 4: Wait for Fix Agents & Merge
+### Phase 4: Wait for Fix Agents & Merge
 
 Follow the **Wait Procedure** for all fix agents. **Partial completion**: merge successful results, note failures in the report.
 
@@ -140,7 +155,15 @@ Follow the **Wait Procedure** for all fix agents. **Partial completion**: merge 
 4. `tests` (if re-spawned)
 5. `coverage` (new tests — least conflict risk)
 
-If no agents made changes → Phase 5 (Shutdown) and report success.
+If no agents made changes → note in iteration report.
+
+### End of Iteration
+
+Increment `ITERATION`. If `ITERATION > MAX_ITERATIONS`, exit loop → proceed to Phase 5.
+
+Otherwise, loop back to Phase 2.
+
+---
 
 ## Phase 5: Shutdown
 
@@ -161,13 +184,15 @@ After all agents are shut down or marked unresponsive, call `TeamDelete`.
 
 ### Step 4: Report
 
+- Iterations completed: X of N (and whether exit was early due to all-clean)
+- Per-iteration summary: issues fixed, coverage delta, agents spawned
 - Quality gate status (PASSED / FAILED)
 - Clippy & tests status
-- Issues fixed vs remaining
+- Issues fixed vs remaining (cumulative across all iterations)
 - Security hotspots fixed vs remaining
 - Coverage before and after
 - Failed/timed-out agents
-- Report artifacts: `$REPORT_ROOT/`
+- Report artifacts: `$REPORT_ROOT/` (with `iter-1/`, `iter-2/`, … subdirectories)
 
 ## User context
 
