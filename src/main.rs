@@ -17,6 +17,7 @@ use client::{IssueSearchParams, SonarQubeConfig};
     long_about = "Standalone CLI for SonarQube — scan, query issues, metrics, rules, and more.\n\n\
         Run a scan:          sonar-cli --project KEY scan\n\
         Scan and wait:       sonar-cli --project KEY scan --wait\n\
+        Scan .NET project:   sonar-cli --project KEY scan --scanner dotnet --solution App.sln\n\
         Discover projects:   sonar-cli projects\n\
         Inspect a project:   sonar-cli --project KEY issues\n\
         Check quality gate:  sonar-cli --project KEY quality-gate\n\

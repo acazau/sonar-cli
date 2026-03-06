@@ -6,6 +6,7 @@ cobertura.xml
 *.profdata
 *.lcov
 clippy-report.json
+clippy/
 .env
 .env.*
 .claude/worktrees/

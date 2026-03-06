@@ -3,7 +3,7 @@ members = ["xtask"]
 
 [package]
 name = "sonar-cli"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 description = "Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and more"
 license = "MIT"

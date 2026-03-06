@@ -965,4 +965,101 @@ mod tests {
         let id = generate_run_id(&None);
         assert!(!id.is_empty());
     }
+
+    // ── ScannerKind derived trait tests ───────────────────────────────────
+
+    #[test]
+    fn test_scanner_kind_debug_and_clone() {
+        let kind = ScannerKind::Cli;
+        let cloned = kind;
+        assert_eq!(kind, cloned);
+        let _ = format!("{:?}", ScannerKind::Cli);
+        let _ = format!("{:?}", ScannerKind::Dotnet);
+    }
+
+    // ── run_phase tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_run_phase_success() {
+        let mut cmd = std::process::Command::new("echo");
+        cmd.arg("hello");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let (code, task_id) = run_phase("echo-phase", cmd, false);
+        assert_eq!(code, 0);
+        assert_eq!(task_id, None);
+    }
+
+    #[test]
+    fn test_run_phase_success_json() {
+        let mut cmd = std::process::Command::new("echo");
+        cmd.arg("hello");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let (code, task_id) = run_phase("echo-phase-json", cmd, true);
+        assert_eq!(code, 0);
+        assert_eq!(task_id, None);
+    }
+
+    #[test]
+    fn test_run_phase_extracts_task_id_from_stdout() {
+        let mut cmd = std::process::Command::new("echo");
+        cmd.arg("http://host/api/ce/task?id=PHASE_TASK_001");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let (code, task_id) = run_phase("echo-task-phase", cmd, true);
+        assert_eq!(code, 0);
+        assert_eq!(task_id, Some("PHASE_TASK_001".to_string()));
+    }
+
+    #[test]
+    fn test_run_phase_failing_command() {
+        let mut cmd = std::process::Command::new("false");
+        cmd.stdout(std::process::Stdio::piped());
+        cmd.stderr(std::process::Stdio::piped());
+        let (code, _) = run_phase("false-phase", cmd, false);
+        assert_ne!(code, 0);
+    }
+
+    #[test]
+    fn test_run_phase_spawn_failure() {
+        let cmd = std::process::Command::new("__sonar_cli_nonexistent_binary_xyz__");
+        let (code, task_id) = run_phase("bad-phase", cmd, false);
+        assert_eq!(code, 1);
+        assert_eq!(task_id, None);
+    }
+
+    // ── copy_coverage_report additional edge cases ────────────────────────
+
+    #[test]
+    fn test_copy_coverage_report_dir_not_exist() {
+        let result = copy_coverage_report("/nonexistent_sonar_cli_dir_xyz_123", "out.xml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_copy_coverage_report_subdir_no_xml() {
+        let tmp = std::env::temp_dir().join("sonar-cli-test-subdir-noxml");
+        let sub = tmp.join("run-abc");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&sub).unwrap();
+        // subdir exists but has no coverage.opencover.xml
+        let result = copy_coverage_report(tmp.to_str().unwrap(), "unreachable.xml");
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("No coverage.opencover.xml"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_copy_coverage_report_files_not_dirs() {
+        let tmp = std::env::temp_dir().join("sonar-cli-test-files-not-dirs");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        // Only a regular file at the root level — is_dir() returns false so it is skipped
+        std::fs::write(tmp.join("coverage.opencover.xml"), "<xml/>").unwrap();
+        let result = copy_coverage_report(tmp.to_str().unwrap(), "unreachable.xml");
+        assert!(result.is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
