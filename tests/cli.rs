@@ -174,7 +174,7 @@ fn test_wait_help() {
 
 #[test]
 fn test_scan_help() {
-    assert_help_contains("scan", &["--clippy-report", "--coverage-report", "--wait", "--wait-timeout", "--poll-interval", "--no-scm", "--skip-unchanged", "--exclusions", "--sources"]);
+    assert_help_contains("scan", &["--clippy-report", "--coverage-report", "--wait", "--wait-timeout", "--poll-interval", "--no-scm", "--skip-unchanged", "--exclusions", "--sources", "--scanner", "--solution", "--opencover-report", "--lcov-report", "--run-id", "--skip-tests"]);
 }
 
 // ── Missing --project validation (exits before any network call) ────
@@ -557,4 +557,29 @@ fn test_auth_status_json_exits_zero() {
         .args(["--json", "auth", "status"])
         .assert()
         .success();
+}
+
+// ── Dotnet scanner integration tests ─────────────────────────────────
+
+#[test]
+fn test_scan_invalid_scanner_kind() {
+    cli()
+        .args(["--url", "http://localhost:1", "--project", "proj", "scan", "--scanner", "maven"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown scanner kind"));
+}
+
+#[test]
+fn test_scan_dotnet_requires_solution() {
+    cli()
+        .args(["--url", "http://localhost:1", "--project", "proj", "scan", "--scanner", "dotnet"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--solution is required"));
+}
+
+#[test]
+fn test_scan_dotnet_flags_in_help() {
+    assert_help_contains("scan", &["--scanner", "--solution", "--opencover-report", "--lcov-report", "--run-id", "--skip-tests"]);
 }

@@ -289,13 +289,22 @@ enum Command {
     /// Run sonar-scanner and optionally wait for analysis (requires --project)
     #[command(long_about = "Run sonar-scanner and optionally wait for analysis (requires --project).\n\n\
         Reads stored credentials (from 'auth login') or CLI flags and passes them\n\
-        to sonar-scanner as -D properties. No env vars needed.\n\n\
+        to the scanner as properties. No env vars needed.\n\n\
+        Scanner types:\n  \
+          cli (default) — runs sonar-scanner (single-shot)\n  \
+          dotnet        — orchestrates: begin → build → test → end\n\n\
         Examples:\n  \
           sonar-cli --project my-proj scan\n  \
           sonar-cli --project my-proj scan --wait\n  \
           sonar-cli --project my-proj scan --clippy-report clippy.json --coverage-report coverage.xml\n  \
-          sonar-cli --project my-proj scan --wait --timeout 600 -- -Dsonar.sources=src")]
+          sonar-cli --project my-proj scan --wait --timeout 600 -- -Dsonar.sources=src\n  \
+          sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln\n  \
+          sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln --wait")]
     Scan {
+        /// Scanner type: cli (default) or dotnet
+        #[arg(long, default_value = "cli")]
+        scanner: String,
+
         /// Path to clippy JSON report
         #[arg(long)]
         clippy_report: Option<String>,
@@ -331,6 +340,26 @@ enum Command {
         /// Source directories (comma-separated, e.g. src,tests)
         #[arg(long)]
         sources: Option<String>,
+
+        /// Path to .NET solution file (required for dotnet scanner)
+        #[arg(long)]
+        solution: Option<String>,
+
+        /// Path to OpenCover XML report (dotnet scanner)
+        #[arg(long)]
+        opencover_report: Option<String>,
+
+        /// Path to LCOV report for JS/TS coverage (dotnet scanner)
+        #[arg(long)]
+        lcov_report: Option<String>,
+
+        /// Run ID for test results traceability (dotnet scanner)
+        #[arg(long)]
+        run_id: Option<String>,
+
+        /// Skip test phase, build only (dotnet scanner)
+        #[arg(long)]
+        skip_tests: bool,
 
         /// Extra arguments passed to sonar-scanner
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -609,6 +638,7 @@ async fn main() {
         }
 
         Command::Scan {
+            ref scanner,
             ref clippy_report,
             ref coverage_report,
             wait,
@@ -618,10 +648,23 @@ async fn main() {
             skip_unchanged,
             ref exclusions,
             ref sources,
+            ref solution,
+            ref opencover_report,
+            ref lcov_report,
+            ref run_id,
+            skip_tests,
             ref extra,
         } => {
             let project = project_or_exit(&cli.project);
+            let scanner_kind = match commands::scan::parse_scanner_kind(scanner) {
+                Ok(k) => k,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
             let params = commands::scan::ScanParams {
+                scanner: scanner_kind,
                 clippy_report: clippy_report.clone(),
                 coverage_report: coverage_report.clone(),
                 wait,
@@ -633,6 +676,11 @@ async fn main() {
                 sources: sources.clone(),
                 extra: extra.clone(),
                 json: cli.json,
+                solution: solution.clone(),
+                opencover_report: opencover_report.clone(),
+                lcov_report: lcov_report.clone(),
+                run_id: run_id.clone(),
+                skip_tests,
             };
             commands::scan::run(config, project, params).await
         }
