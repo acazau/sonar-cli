@@ -1,8 +1,6 @@
 # sonar-cli
 
-Standalone CLI for SonarQube — query issues, quality gates, metrics, coverage, and more.
-
-sonar-cli is a **reporting-only** tool. It queries a SonarQube server for project data but does not run scans itself. Use `sonar-scanner` (via Docker or native install) to submit analyses, then use sonar-cli to inspect the results.
+Standalone CLI for SonarQube — scan, query issues, quality gates, metrics, coverage, and more.
 
 ## Install
 
@@ -31,6 +29,21 @@ sonar-cli reads configuration from command-line flags or a stored config file (`
 | `--timeout` | `30` | Request timeout in seconds |
 | `-v` | | Verbose logging |
 
+### Credential management
+
+```bash
+# Store credentials (saved globally — no env vars needed for subsequent commands)
+sonar-cli auth login --url https://sonar.example.com --token squ_abc123
+
+# Check stored credentials
+sonar-cli auth status
+
+# Remove stored credentials
+sonar-cli auth logout
+```
+
+Priority: CLI flags > config file > defaults.
+
 ## Commands
 
 ### Server commands (no `--project` required)
@@ -42,10 +55,13 @@ sonar-cli health
 # List projects
 sonar-cli projects
 sonar-cli projects --search my-app
+sonar-cli projects --qualifier VW   # list portfolios (TRK=projects, VW=portfolios, APP=applications)
 
 # Search quality rules
 sonar-cli rules
 sonar-cli rules --language java --severity CRITICAL
+sonar-cli rules --search "null pointer"
+sonar-cli rules --rule-type BUG --status READY
 
 # View source code
 sonar-cli source my-project:src/main.rs
@@ -64,6 +80,10 @@ sonar-cli --project my-proj issues
 sonar-cli --project my-proj issues --severity CRITICAL
 sonar-cli --project my-proj issues --status RESOLVED --language java
 sonar-cli --project my-proj issues --created-after 2025-01-01 --limit 50
+sonar-cli --project my-proj issues --issue-type BUG --rule java:S1234
+sonar-cli --project my-proj issues --resolution FIXED --tags security
+sonar-cli --project my-proj issues --author jdoe --assignee unassigned
+sonar-cli --project my-proj issues --created-before 2025-06-01 --new-code
 
 # Metrics
 sonar-cli --project my-proj measures
@@ -84,9 +104,12 @@ sonar-cli --project my-proj duplications --details
 # Security hotspots
 sonar-cli --project my-proj hotspots
 sonar-cli --project my-proj hotspots --status REVIEWED
+sonar-cli --project my-proj hotspots --new-code
 ```
 
 ### Analysis commands
+
+#### CLI scanner (default)
 
 ```bash
 # Run sonar-scanner using stored credentials (no env vars needed)
@@ -94,9 +117,27 @@ sonar-cli --project my-proj scan
 sonar-cli --project my-proj scan --wait
 sonar-cli --project my-proj scan --clippy-report clippy.json --coverage-report coverage.xml
 sonar-cli --project my-proj scan --no-scm --skip-unchanged
-sonar-cli --project my-proj scan --wait --timeout 600 -- -Dsonar.verbose=true
+sonar-cli --project my-proj scan --exclusions "**/*_test.go,**/vendor/**"
+sonar-cli --project my-proj scan --sources src,lib
+sonar-cli --project my-proj scan --wait --wait-timeout 600 --poll-interval 10
+sonar-cli --project my-proj scan --wait -- -Dsonar.verbose=true
+```
 
-# Wait for a background analysis task to complete
+#### .NET scanner (`--scanner dotnet`)
+
+Orchestrates a 4-phase flow: `dotnet sonarscanner begin` → `dotnet build` → `dotnet test` → `dotnet sonarscanner end`.
+
+```bash
+sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln
+sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln --wait
+sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln --skip-tests
+sonar-cli --project my-proj scan --scanner dotnet --solution MyApp.sln \
+  --opencover-report coverage.xml --lcov-report lcov.info --run-id 42
+```
+
+#### Wait for background analysis
+
+```bash
 sonar-cli wait <TASK_ID>
 sonar-cli wait <TASK_ID> --timeout 600 --poll-interval 10
 ```
@@ -120,117 +161,78 @@ sonar-cli --project my-proj quality-gate --fail-on-error
 
 Exit codes: `0` = success, `1` = error or quality gate failed.
 
-## SonarQube Server Setup
-
-This project includes a `docker-compose.yml` that runs SonarQube with the [community-branch-plugin](https://github.com/mc1arke/sonarqube-community-branch-plugin), enabling analysis of feature branches (not just `main`).
-
-```bash
-docker compose up -d
-```
-
-SonarQube will be available at `http://localhost:9000` (default credentials: `admin`/`admin`).
-
-### First-time setup
-
-1. Log in and create a project (Projects → Create Project → Manually)
-2. Generate an authentication token (My Account → Security → Generate Token)
-3. Store credentials with `sonar-cli`:
-
-   ```bash
-   sonar-cli auth login --url http://localhost:9000 --token <your-token>
-   ```
-
-   Credentials are saved globally — no env vars or `.env` file needed for subsequent commands.
-
-### Running a scan
-
-**Native (default)** — requires `sonar-scanner` installed locally:
-
-```bash
-brew install sonar-scanner
-sonar-cli --project my-proj scan
-sonar-cli --project my-proj scan --wait   # block until analysis completes
-```
-
-**Docker (reference)** — uses the `sonarsource/sonar-scanner-cli` image (reads `SONAR_HOST_URL`, `SONAR_TOKEN`, `SONAR_PROJECT_KEY` from env):
-
-```bash
-cargo xtask docker-scan
-```
-
-### Branch analysis
-
-Branch analysis is automatic — the `/scan` command detects the current git branch and passes it to the scanner via `-Dsonar.branch.name`. Results are then queryable per branch:
-
-```bash
-sonar-cli --project my-proj --branch feature-x issues
-sonar-cli --project my-proj --branch feature-x quality-gate
-```
-
 ## Claude Quality Sweep Workflow
 
 This project includes a Claude Code agent (`/quality-fix`) that auto-fixes code quality issues using parallel agents in isolated git worktrees.
 
 - `/quality-fix` — scan changed files only (default)
 - `/quality-fix --full` — scan all files (tech debt cleanup)
+- `/quality-fix --iterations N` — run up to N fix cycles (default: 1)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│                /quality-fix [--full]                       │
+│           /quality-fix [--full] [--iterations N]         │
 └────────────────────┬─────────────────────────────────────┘
                      │
                      ▼
              ┌───────────────┐
-             │ Scope         │── --full ──→ All .rs files
-             │               │── default ─→ changed files
+             │ Phase 1:      │
+             │ Setup         │── TeamCreate, scope, report dir
              └───────┬───────┘
                      │
-        ═════════════╪═════════════
-        ║  PHASE 1: BUILD & TEST  ║
-        ═════════════╪═════════════
+        ┌────────────────────────────┐
+        │   Fix Cycle (up to N)      │
+        │                            │
+        │  ══════════════════════    │
+        │  PHASE 2: BUILD & TEST    │
+        │  ══════════════════════    │
+        │         │                  │
+        │    ┌────┴────┐             │
+        │    ▼         ▼             │
+        │ ┌───────┐ ┌───────┐       │
+        │ │clippy │ │ tests │       │
+        │ │(wktree)│ │(wktree)│      │
+        │ └───┬───┘ └───┬───┘       │
+        │     └────┬─────┘           │
+        │          ▼                 │
+        │   Merge clippy → tests    │
+        │          │                 │
+        │  ══════════════════════    │
+        │  PHASE 3: SCAN & TRIAGE   │
+        │  ══════════════════════    │
+        │          ▼                 │
+        │   ┌─────────────┐         │
+        │   │  sonar-scan │→ task ID│
+        │   └──────┬──────┘         │
+        │          ▼                 │
+        │   ┌─────────────┐         │
+        │   │   triage    │         │
+        │   └──────┬──────┘         │
+        │          │                 │
+        │  ══════════════════════    │
+        │  PHASE 4: FIX AGENTS      │
+        │  ══════════════════════    │
+        │          │                 │
+        │   ┌──────┴──────────┐     │
+        │   ▼    ▼     ▼     ▼     │
+        │ ┌────┐┌────┐┌───┐┌─────┐ │
+        │ │issu││dups││cov││hotsp│ │
+        │ │(wt)││(wt)││(wt)││(wt) │ │
+        │ └─┬──┘└─┬──┘└─┬─┘└──┬──┘ │
+        │   └─────┴─────┴─────┘     │
+        │          ▼                 │
+        │   Merge: dups → issues    │
+        │    → hotspots → coverage  │
+        │          │                 │
+        │   (loop if iterations      │
+        │    remain & issues found)  │
+        └────────────┬───────────────┘
                      │
-          ┌──────────┴──────────┐
-          ▼                     ▼
-   ┌─────────────┐       ┌─────────────┐
-   │   clippy    │       │    tests    │
-   │  (worktree) │       │  (worktree) │
-   └──────┬──────┘       └──────┬──────┘
-          │                     │
-          └──────────┬──────────┘
-                     ▼
-             Merge fixes (if any)
-                     │
         ═════════════╪═════════════
-        ║  PHASE 2: SCAN & TRIAGE ║
+        ║   PHASE 5: SHUTDOWN      ║
         ═════════════╪═════════════
                      ▼
-             ┌───────────────┐
-             │  sonar-scan   │ → analysis task ID
-             └───────┬───────┘
-                     ▼
-             ┌───────────────┐
-             │    triage     │ wait + query all metrics
-             └───────┬───────┘
-                     │
-          ┌──────────┴─────────────────┐
-          │   Spawn per triage hint    │
-          ▼          ▼         ▼       ▼
-   ┌──────────┐ ┌────────┐ ┌──────┐ ┌──────────┐
-   │  issues  │ │  dups  │ │ cov  │ │hotspots  │
-   │(worktree)│ │(wktree)│ │(wkt) │ │(worktree)│
-   └────┬─────┘ └───┬────┘ └──┬───┘ └────┬─────┘
-        └───────────┴─────────┴──────────┘
-                          │
-                          ▼
-              Merge in order: dups → issues
-                  → hotspots → coverage
-                          │
-        ════════════════════════════════
-        ║         PHASE 3: SHUTDOWN   ║
-        ════════════════════════════════
-                          │
-                          ▼
-                   Final report
+              Final report
 ```
 
 ## Development

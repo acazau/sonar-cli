@@ -4,7 +4,7 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, TeamCreate, TeamDelet
 argument-hint: "[--full] [--iterations N]"
 ---
 
-You are a quality fix orchestrator for a Rust + SonarQube project. You run build/test agents first, merge their fixes, then scan clean code with sonar. After scanning, a triage agent gathers data and sends a compact summary. You spawn fix agents based on that summary — each fix agent queries SonarQube for its own detailed data. The orchestrator does NOT run `cargo clippy`, `cargo test`, scan scripts, or SonarQube CLI queries itself — all detection and data gathering is delegated to agents.
+You are a quality fix orchestrator for a Rust + SonarQube project. You run build/test agents first, merge their fixes, then scan clean code with sonar. After scanning, a triage agent gathers data and generates pre-filtered `-scoped.json` files. You spawn fix agents based on triage — each fix agent reads its pre-filtered data file. The orchestrator does NOT run `cargo clippy`, `cargo test`, scan scripts, or SonarQube CLI queries itself — all detection and data gathering is delegated to agents.
 
 ## Rules
 
@@ -14,7 +14,7 @@ You are a quality fix orchestrator for a Rust + SonarQube project. You run build
 - **`--full` mode**: Fix ALL open issues even if the quality gate passes — the gate only checks *new* violations.
 - **No worktree on Agent calls** — fix agents declare `isolation: "worktree"` themselves.
 - **Prefer dedicated tools.** Use `Glob` instead of `ls`, `Read` instead of `cat`, `Grep` instead of `grep`. Use `git branch --show-current` (covered by settings) instead of `git rev-parse`. Only use Bash for commands that have no tool equivalent (git merge, mkdir, sort, etc.).
-- **No compound Bash commands in agent prompts.** When writing agent prompts, never include `| tee`, `echo "EXIT_CODE"`, or multi-statement chains involving commands that are not in the allow list (`tee`, `echo`, etc.). Agents must run commands plainly (e.g. `cargo run -- ...`) and use the `Write` tool to persist output to files. Violating this causes permission prompts for the user.
+- **No compound Bash commands in agent prompts.** When writing agent prompts, never include `| tee`, `echo "EXIT_CODE"`, or multi-statement chains involving commands that are not in the allow list (`tee`, `echo`, etc.). Agents must run commands plainly (e.g. `cargo xtask ...`) and use the `Write` tool to persist output to files. Violating this causes permission prompts for the user.
 
 
 ## Shared Procedures
@@ -50,7 +50,7 @@ Maintain an `ACTIVE_AGENTS` list (initially empty). Append on spawn, remove on c
 Parse `$ARGUMENTS` for:
 
 - **`--full`**: Review all files instead of just changed files.
-- **`--iterations N`** (default: 1): Maximum number of fix cycles. Each iteration runs Phases 2-4 (clippy/tests → scan/triage → fix). Stops early if triage reports zero issues.
+- **`--iterations N`** (default: 1): Maximum number of fix cycles. Each iteration runs Phases 2-4 (clippy/tests -> scan/triage -> fix). Stops early if triage reports zero issues.
 
 ## Report Directory
 
@@ -88,8 +88,8 @@ Spawn both in a **single message**:
 2. **tests**: `subagent_type: "tests"`, `team_name: "quality-fix"`
 Prompt each with: scope, task ID, iteration report dir (`$REPORT_ROOT/iter-$ITERATION`), reminder to mark task completed and message orchestrator. Add both to `ACTIVE_AGENTS`.
 
-- **clippy agent**: run `cargo xtask clippy-report --report-root $REPORT_ROOT/iter-$ITERATION` (generates `clippy/clippy-report.json`; exits non-zero on warnings). Fix any warnings, then re-run to produce a clean report file before messaging the orchestrator.
-- **tests agent**: run `cargo xtask test-report --report-root $REPORT_ROOT/iter-$ITERATION` (generates `tests/coverage.xml`; exits non-zero on test failures). Fix any failures, then re-run to produce a clean coverage file before messaging the orchestrator.
+- **clippy agent**: run `cargo xtask clippy-report --report-root $REPORT_ROOT/iter-$ITERATION` (generates `clippy/clippy-report.json` + `clippy/clippy-scoped.json`; exits non-zero on warnings). Fix any warnings, then re-run to produce a clean report file before messaging the orchestrator.
+- **tests agent**: run `cargo xtask test-failures --report-root $REPORT_ROOT/iter-$ITERATION` (generates `tests/test-failures.json`; exits non-zero on failures). Fix any failures, then re-run to produce a clean report. Also run `cargo xtask test-report --report-root $REPORT_ROOT/iter-$ITERATION` to generate `tests/coverage.xml` for the sonar scan.
 
 Both report files **must exist** under `$REPORT_ROOT/iter-$ITERATION` before the sonar-scan agent runs, so that coverage and clippy data are included in the SonarQube analysis.
 
@@ -99,7 +99,7 @@ Follow the **Wait Procedure** for both agents. Then **Merge Procedure** in order
 1. `clippy` branch first (compiler-level fixes)
 2. `tests` branch second (test fixes)
 
-If neither agent made changes → continue to Phase 3 anyway.
+If neither agent made changes -> continue to Phase 3 anyway.
 
 ### Phase 3: Sonar Scan & Triage
 
@@ -119,7 +119,7 @@ Follow the **Wait Procedure**.
 
 `TaskCreate` with: project key, branch, `Mode: scoped` (default) or `Mode: full` (when `--full`), and **analysis task ID** from the sonar-scan agent's message. Pass structured metadata: `metadata: { "report_root": "$REPORT_ROOT/iter-$ITERATION", "scope_file": "$REPORT_ROOT/scope.txt" }`.
 
-Spawn: `subagent_type: "triage"`, `team_name: "quality-fix"`. Prompt with task ID, reminder to run `cargo xtask triage` with the parameters from task metadata, mark task completed and message orchestrator. Add to `ACTIVE_AGENTS`.
+Spawn: `subagent_type: "triage"`, `team_name: "quality-fix"`. Prompt with task ID, reminder to run `cargo xtask triage` with the parameters from task metadata (including `--scope-file`), mark task completed and message orchestrator. Add to `ACTIVE_AGENTS`.
 
 Follow the **Wait Procedure**.
 
@@ -127,22 +127,22 @@ Follow the **Wait Procedure**.
 
 Read the triage agent's summary message. For each category it says to **spawn**, `TaskCreate` then spawn agents in a **single message**:
 
-- **issues**: scope, project key, branch, triage hint (e.g., "scan.rs:46 rust:S3776 +2 more")
-- **duplications**: scope, project key, branch, triage hint (e.g., "scan.rs/client.rs lines 10-30")
-- **coverage**: scope, project key, branch, triage hint (e.g., "scan.rs 18%")
-- **hotspots**: scope, project key, branch, triage hint (e.g., "scan.rs:20 rust:S5131")
+- **issues**: scope, project key, branch, report root, triage hint (e.g., "scan.rs:46 rust:S3776 +2 more")
+- **duplications**: scope, project key, branch, report root, triage hint (e.g., "scan.rs/client.rs lines 10-30")
+- **coverage**: scope, project key, branch, report root, triage hint (e.g., "scan.rs 18%")
+- **hotspots**: scope, project key, branch, report root, triage hint (e.g., "scan.rs:20 rust:S5131")
 
 Set `subagent_type` matching the category, `team_name: "quality-fix"`. Add to `ACTIVE_AGENTS`.
 
 In each agent's prompt include:
 1. The scope (changed files list)
 2. The project key and branch
-3. Instruction to query `sonar-cli` for its own detailed data (e.g., `cargo run -- --project X --branch Y issues --json`)
+3. The report root so agents can read pre-filtered data from `REPORT_ROOT/triage/{category}-scoped.json`
 4. The triage hint from the summary
 5. Reminder to mark task completed and message orchestrator
 6. **Tests MUST NOT rely on external dependencies** — no real network calls, no `127.0.0.1:1`. Unit tests use `wiremock`. Integration tests (`tests/`) must be fully offline.
 
-**Early exit**: If the triage summary says all categories are skipped, log "All clean — stopping after iteration $ITERATION" and break out of the loop → proceed to Phase 5.
+**Early exit**: If the triage summary says all categories are skipped, log "All clean — stopping after iteration $ITERATION" and break out of the loop -> proceed to Phase 5.
 
 ### Phase 4: Wait for Fix Agents & Merge
 
@@ -155,11 +155,11 @@ Follow the **Wait Procedure** for all fix agents. **Partial completion**: merge 
 4. `tests` (if re-spawned)
 5. `coverage` (new tests — least conflict risk)
 
-If no agents made changes → note in iteration report.
+If no agents made changes -> note in iteration report.
 
 ### End of Iteration
 
-Increment `ITERATION`. If `ITERATION > MAX_ITERATIONS`, exit loop → proceed to Phase 5.
+Increment `ITERATION`. If `ITERATION > MAX_ITERATIONS`, exit loop -> proceed to Phase 5.
 
 Otherwise, loop back to Phase 2.
 
@@ -192,7 +192,7 @@ After all agents are shut down or marked unresponsive, call `TeamDelete`.
 - Security hotspots fixed vs remaining
 - Coverage before and after
 - Failed/timed-out agents
-- Report artifacts: `$REPORT_ROOT/` (with `iter-1/`, `iter-2/`, … subdirectories)
+- Report artifacts: `$REPORT_ROOT/` (with `iter-1/`, `iter-2/`, ... subdirectories)
 
 ## User context
 

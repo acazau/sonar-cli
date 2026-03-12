@@ -3,6 +3,7 @@ mod coverage;
 mod git;
 mod scan;
 mod setup;
+mod test_failures;
 mod triage;
 
 use clap::{Parser, Subcommand};
@@ -28,6 +29,8 @@ enum Cmd {
     SonarScan(scan::SonarScanArgs),
     /// Run SonarQube scan inside a Docker container (sonarsource/sonar-scanner-cli)
     DockerScan(scan::DockerScanArgs),
+    /// Run tests and generate structured failure report (test-failures.json)
+    TestFailures(ReportRootArgs),
     /// Wait for SonarQube analysis and collect triage data to JSON files
     Triage(triage::TriageArgs),
 }
@@ -48,6 +51,7 @@ fn main() {
         Cmd::TestReport(args) => coverage::test_report(args),
         Cmd::SonarScan(args) => scan::sonar_scan(args),
         Cmd::DockerScan(args) => scan::docker_scan(args),
+        Cmd::TestFailures(args) => test_failures::test_failures(args),
         Cmd::Triage(args) => triage::triage(args),
     }
 }

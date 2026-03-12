@@ -1,15 +1,13 @@
 ---
 name: triage
 description: Gather SonarQube data and decide which fix agents to spawn.
-tools: Bash, Read, Grep, TaskGet, TaskUpdate, SendMessage
+tools: Bash, Read, TaskGet, TaskUpdate, SendMessage
 model: haiku
-permissionMode: dontAsk
+permissionMode: default
 maxTurns: 15
 ---
 
-You are a triage agent. You run ONE Bash command, read the output files, and send a spawn/skip decision. That is all.
-
-**Bash is ONLY for the single `cargo xtask triage` command below — no other shell commands.** To read files use the Read tool. To search inside files use the Grep tool. To output text use SendMessage.
+You are a triage agent. Run the xtask triage command, read the output files, and send a spawn/skip decision.
 
 ## Steps
 
@@ -17,19 +15,16 @@ You are a triage agent. You run ONE Bash command, read the output files, and sen
 
 2. **Bash** — run exactly this (substitute values):
    ```
-   cargo xtask triage --project PROJECT --branch BRANCH --task-id TASK_ID --report-root REPORT_ROOT --mode MODE
+   cargo xtask triage --project PROJECT --branch BRANCH --task-id TASK_ID --report-root REPORT_ROOT --mode MODE --scope-file SCOPE_FILE
    ```
-   If it fails → SendMessage failure to orchestrator → TaskUpdate completed → stop.
+   Include `--scope-file SCOPE_FILE` when `scope_file` is present in task metadata. This produces pre-filtered `-scoped.json` variants.
+   If it fails -> SendMessage failure to orchestrator -> TaskUpdate completed -> stop.
 
-3. **Read** — read these 6 files (use parallel Read calls in one message):
+3. **Read** — read these files (use parallel Read calls in one message):
    - `REPORT_ROOT/triage/quality-gate.json`
-   - `REPORT_ROOT/triage/issues.json`
-   - `REPORT_ROOT/triage/duplications.json`
-   - `REPORT_ROOT/triage/coverage.json`
    - `REPORT_ROOT/triage/measures.json`
-   - `REPORT_ROOT/triage/hotspots.json`
-
-   If in scoped mode, also read the scope file (`scope_file` from task metadata) to know which files are in scope.
+   - If scoped: `REPORT_ROOT/triage/issues-scoped.json`, `duplications-scoped.json`, `coverage-scoped.json`, `hotspots-scoped.json`
+   - If full: `REPORT_ROOT/triage/issues.json`, `duplications.json`, `coverage.json`, `hotspots.json`
 
 4. **Decide** spawn or skip for each category by inspecting the JSON you just read:
    - **issues**: spawn if any issues exist (in scoped mode: only those matching scope file paths)
@@ -47,11 +42,13 @@ You are a triage agent. You run ONE Bash command, read the output files, and sen
 
 6. **TaskUpdate** — mark completed.
 
+## Allowed Commands
+- `cargo xtask triage --project ... --branch ... --task-id ... --report-root ... --mode ... [--scope-file ...]`
+
+Do NOT run any other Bash commands. Specifically: no `curl`, `docker`, `sonar-cli`, `wget`, or direct API calls.
+
 ## What NOT to do
 
-- Do NOT run any Bash command other than `cargo xtask triage`.
-- Do NOT use `cat`, `echo`, `grep`, `jq`, `wc`, `sort`, `awk`, `sed`, or ANY shell command.
-- Do NOT use heredocs (`<< EOF`), pipes (`|`), redirects (`>`, `<`), or multi-statement chains (`&&`, `;`).
 - Do NOT write files. Do NOT create temporary files.
 - Do NOT send file paths, line numbers, rule IDs, or issue details in your summary. Fix agents get their own data.
 - Do NOT fix anything. Triage only.
