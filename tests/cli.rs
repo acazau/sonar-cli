@@ -174,7 +174,7 @@ fn test_wait_help() {
 
 #[test]
 fn test_scan_help() {
-    assert_help_contains("scan", &["--clippy-report", "--coverage-report", "--wait", "--wait-timeout", "--poll-interval", "--no-scm", "--skip-unchanged", "--exclusions", "--sources", "--scanner", "--solution", "--opencover-report", "--lcov-report", "--run-id", "--skip-tests"]);
+    assert_help_contains("scan", &["--clippy-report", "--coverage-report", "--wait", "--wait-timeout", "--poll-interval", "--no-scm", "--skip-unchanged", "--exclusions", "--sources", "--inclusions", "--scanner", "--solution", "--opencover-report", "--lcov-report", "--run-id", "--skip-tests"]);
 }
 
 // ── Missing --project validation (exits before any network call) ────
@@ -582,4 +582,12 @@ fn test_scan_dotnet_requires_solution() {
 #[test]
 fn test_scan_dotnet_flags_in_help() {
     assert_help_contains("scan", &["--scanner", "--solution", "--opencover-report", "--lcov-report", "--run-id", "--skip-tests"]);
+}
+
+#[test]
+fn test_scan_inclusions_flag_accepted() {
+    assert_missing_project(&[
+        "scan",
+        "--inclusions", "src/main.rs,src/lib.rs",
+    ]);
 }

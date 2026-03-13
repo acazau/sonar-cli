@@ -11,8 +11,8 @@ You are a SonarQube scan agent for a Rust project. Run the scan, extract the ana
 
 ## Instructions
 
-1. Read your assigned task using `TaskGet` to get the scope. Extract `report_root` from task metadata.
-2. Run `cargo xtask sonar-scan --report-root "<report_root>"` as a plain command — no pipes, no redirects, no `tee`, no `echo "EXIT_CODE"`.
+1. Read your assigned task using `TaskGet` to get the scope. Extract `report_root` and `scope_file` from task metadata.
+2. Run `cargo xtask sonar-scan --report-root "<report_root>"` as a plain command — no pipes, no redirects, no `tee`, no `echo "EXIT_CODE"`. If `scope_file` is present in metadata, add `--scope-file "<scope_file>"` to restrict the scan to changed files.
 3. Extract the task ID from the `Analysis task ID:` line in the scan output.
 4. Send results to the orchestrator via `SendMessage`. Include:
    - Scan success or failure (based on exit code)

@@ -17,20 +17,23 @@ pub fn parse_scanner_kind(s: &str) -> Result<ScannerKind, String> {
     }
 }
 
+/// Extract trimmed stdout from a successful command output.
+fn parse_command_stdout(o: std::process::Output) -> Option<String> {
+    if o.status.success() {
+        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        if s.is_empty() { None } else { Some(s) }
+    } else {
+        None
+    }
+}
+
 /// Resolve the current git branch name.
 fn detect_branch() -> Option<String> {
     Command::new("git")
         .args(["branch", "--show-current"])
         .output()
         .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if s.is_empty() { None } else { Some(s) }
-            } else {
-                None
-            }
-        })
+        .and_then(parse_command_stdout)
 }
 
 /// Extract the analysis task ID from scanner output.
@@ -58,6 +61,7 @@ pub struct ScanParams {
     pub skip_unchanged: bool,
     pub exclusions: Option<String>,
     pub sources: Option<String>,
+    pub inclusions: Option<String>,
     pub extra: Vec<String>,
     pub json: bool,
     pub solution: Option<String>,
@@ -95,25 +99,7 @@ fn build_command(config: &SonarQubeConfig, project: &str, params: &ScanParams) -
     }
 
     // Performance flags — only emitted when explicitly set via CLI flags.
-    if params.no_scm {
-        cmd.arg("-Dsonar.scm.disabled=true");
-    }
-    if params.skip_unchanged {
-        cmd.arg("-Dsonar.scanner.skipUnchangedFiles=true");
-    }
-    if let Some(ref excl) = params.exclusions {
-        cmd.arg(format!("-Dsonar.exclusions={excl}"));
-    }
-    if let Some(ref src) = params.sources {
-        cmd.arg(format!("-Dsonar.sources={src}"));
-    }
-
-    for arg in &params.extra {
-        cmd.arg(arg);
-    }
-
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    apply_common_scan_params(&mut cmd, params, "-D");
 
     cmd
 }
@@ -153,6 +139,31 @@ fn report_task_id(task_id: &Option<String>, json: bool) {
     }
 }
 
+/// Append shared performance flags, extra args, and piped stdio to a command.
+/// `prefix` is `-D` for sonar-scanner CLI or `/d:` for dotnet sonarscanner.
+fn apply_common_scan_params(cmd: &mut Command, params: &ScanParams, prefix: &str) {
+    if params.no_scm {
+        cmd.arg(format!("{prefix}sonar.scm.disabled=true"));
+    }
+    if params.skip_unchanged {
+        cmd.arg(format!("{prefix}sonar.scanner.skipUnchangedFiles=true"));
+    }
+    if let Some(ref excl) = params.exclusions {
+        cmd.arg(format!("{prefix}sonar.exclusions={excl}"));
+    }
+    if let Some(ref src) = params.sources {
+        cmd.arg(format!("{prefix}sonar.sources={src}"));
+    }
+    if let Some(ref incl) = params.inclusions {
+        cmd.arg(format!("{prefix}sonar.inclusions={incl}"));
+    }
+    for arg in &params.extra {
+        cmd.arg(arg);
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+}
+
 // ── dotnet scanner support ───────────────────────────────────────────
 
 fn build_dotnet_begin_command(
@@ -175,19 +186,6 @@ fn build_dotnet_begin_command(
         cmd.arg(format!("/d:sonar.branch.name={b}"));
     }
 
-    if params.no_scm {
-        cmd.arg("/d:sonar.scm.disabled=true");
-    }
-    if params.skip_unchanged {
-        cmd.arg("/d:sonar.scanner.skipUnchangedFiles=true");
-    }
-    if let Some(ref excl) = params.exclusions {
-        cmd.arg(format!("/d:sonar.exclusions={excl}"));
-    }
-    if let Some(ref src) = params.sources {
-        cmd.arg(format!("/d:sonar.sources={src}"));
-    }
-
     if let Some(ref path) = params.opencover_report {
         cmd.arg(format!("/d:sonar.cs.opencover.reportsPaths={path}"));
     }
@@ -195,12 +193,7 @@ fn build_dotnet_begin_command(
         cmd.arg(format!("/d:sonar.javascript.lcov.reportPaths={path}"));
     }
 
-    for arg in &params.extra {
-        cmd.arg(arg);
-    }
-
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    apply_common_scan_params(&mut cmd, params, "/d:");
 
     cmd
 }
@@ -248,14 +241,7 @@ fn generate_run_id(run_id: &Option<String>) -> String {
     Command::new("uuidgen")
         .output()
         .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if s.is_empty() { None } else { Some(s) }
-            } else {
-                None
-            }
-        })
+        .and_then(parse_command_stdout)
         .unwrap_or_else(|| format!("run-{}", std::process::id()))
 }
 
@@ -514,6 +500,7 @@ mod tests {
             skip_unchanged: false,
             exclusions: None,
             sources: None,
+            inclusions: None,
             extra: extra.into_iter().map(|s| s.to_string()).collect(),
             json: false,
             solution: None,
@@ -641,6 +628,7 @@ mod tests {
             skip_unchanged: true,
             exclusions: Some("**/*.json".to_string()),
             sources: Some("src,tests".to_string()),
+            inclusions: None,
             extra: vec![],
             json: false,
             solution: None,
@@ -678,6 +666,35 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a.starts_with("-Dsonar.projectBaseDir=")));
+    }
+
+    #[test]
+    fn test_build_command_with_inclusions() {
+        let config = make_config("http://localhost:9000", None, Some("main"));
+        let mut params = make_params(None, None, vec![]);
+        params.inclusions = Some("src/main.rs,src/lib.rs".to_string());
+        let cmd = build_command(&config, "proj", &params);
+        let args = args_vec(&cmd);
+        assert!(args.iter().any(|a| a == "-Dsonar.inclusions=src/main.rs,src/lib.rs"));
+    }
+
+    #[test]
+    fn test_build_command_without_inclusions() {
+        let config = make_config("http://localhost:9000", None, Some("main"));
+        let params = make_params(None, None, vec![]);
+        let cmd = build_command(&config, "proj", &params);
+        let args = args_vec(&cmd);
+        assert!(!args.iter().any(|a| a.starts_with("-Dsonar.inclusions")));
+    }
+
+    #[test]
+    fn test_build_dotnet_begin_with_inclusions() {
+        let config = make_config("http://sonar:9000", None, None);
+        let mut params = make_dotnet_params(Some("App.sln"), None, None, vec![]);
+        params.inclusions = Some("src/main.rs".to_string());
+        let cmd = build_dotnet_begin_command(&config, "proj", &params);
+        let args = args_vec(&cmd);
+        assert!(args.iter().any(|a| a == "/d:sonar.inclusions=src/main.rs"));
     }
 
     // ── stream_output tests ───────────────────────────────────────────────
@@ -807,6 +824,7 @@ mod tests {
             skip_unchanged: false,
             exclusions: None,
             sources: None,
+            inclusions: None,
             extra: extra.into_iter().map(|s| s.to_string()).collect(),
             json: false,
             solution: solution.map(|s| s.to_string()),

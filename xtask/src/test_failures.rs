@@ -382,4 +382,58 @@ test result: FAILED.
         assert_eq!(failures[0].test, "my_test");
         assert!(!failures[0].message.is_empty());
     }
+
+    #[test]
+    fn test_filtered_error_lines_not_reported() {
+        // Lines like "error: could not compile", "error: aborting", "error: test failed"
+        // must be silently ignored and not produce a TestFailure entry.
+        let output = concat!(
+            "error: could not compile `sonar-cli` (lib) due to 2 previous errors\n",
+            "error: aborting due to previous error\n",
+            "error: test failed, to rerun pass `--test cli`\n",
+        );
+        let failures = parse_test_failures(output);
+        assert!(
+            failures.is_empty(),
+            "filtered error lines should not produce failures: {:?}",
+            failures
+        );
+    }
+
+    #[test]
+    fn test_assertion_prefix_message_extracted() {
+        // When a test stdout block contains a line starting with "assertion"
+        // (not "panicked at"), extract_assertion_message should return that line.
+        let output = r#"failures:
+
+---- my_assert_test stdout ----
+assertion failed: `(left == right)`
+  left: `42`,
+ right: `0`
+
+failures:
+    my_assert_test
+
+test result: FAILED.
+"#;
+        let failures = parse_test_failures(output);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].test, "my_assert_test");
+        assert_eq!(
+            failures[0].message,
+            "assertion failed: `(left == right)`"
+        );
+    }
+
+    #[test]
+    fn test_malformed_error_bracket_no_colon_space() {
+        // An "error[E...]" line that has no "]: " separator should not produce a failure.
+        let output = "error[E0001 missing bracket colon space\n";
+        let failures = parse_test_failures(output);
+        assert!(
+            failures.is_empty(),
+            "malformed error bracket line should not produce failures: {:?}",
+            failures
+        );
+    }
 }

@@ -104,7 +104,7 @@ If neither agent made changes -> continue to Phase 3 anyway.
 
 #### Step 1: Create Task & Spawn Agent
 
-`TaskCreate`: "Run sonar scan and return task ID. The scanner always scans all files — scope filtering happens at triage time." Pass the report root as structured metadata: `metadata: { "report_root": "$REPORT_ROOT/iter-$ITERATION" }`.
+`TaskCreate`: "Run sonar scan and return task ID." Pass the report root and scope file as structured metadata: `metadata: { "report_root": "$REPORT_ROOT/iter-$ITERATION", "scope_file": "$REPORT_ROOT/scope.txt" }`.
 
 Spawn: `subagent_type: "sonar-scan"`, `team_name: "quality-fix"`. Prompt with scope, task ID, reminder to message when done. Add to `ACTIVE_AGENTS`.
 

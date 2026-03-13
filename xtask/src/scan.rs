@@ -6,6 +6,9 @@ pub struct SonarScanArgs {
     /// Root report directory to look for clippy/coverage report files
     #[arg(long)]
     pub report_root: Option<String>,
+    /// Path to scope.txt file for restricting analysis to listed files
+    #[arg(long)]
+    pub scope_file: Option<String>,
     /// Timeout in seconds (default: 600). Exit code 124 on timeout.
     #[arg(long, default_value = "600")]
     pub timeout: u64,
@@ -37,7 +40,7 @@ pub fn resolve_with_env(explicit: Option<&str>, env_var: &str, default: &str) ->
     std::env::var(env_var).unwrap_or_else(|_| default.to_string())
 }
 
-pub fn build_sonar_scan_command(report_root: Option<&str>, extra: &[String]) -> Command {
+pub fn build_sonar_scan_command(report_root: Option<&str>, scope_file: Option<&str>, extra: &[String]) -> Command {
     let mut cmd = Command::new("cargo");
     cmd.args(["run", "--", "--project", "sonar-cli", "scan"]);
 
@@ -52,13 +55,22 @@ pub fn build_sonar_scan_command(report_root: Option<&str>, extra: &[String]) -> 
         }
     }
 
+    if let Some(path) = scope_file {
+        if let Ok(contents) = std::fs::read_to_string(path) {
+            let inclusions: Vec<&str> = contents.lines().filter(|l| !l.trim().is_empty()).collect();
+            if !inclusions.is_empty() {
+                cmd.args(["--inclusions", &inclusions.join(",")]);
+            }
+        }
+    }
+
     cmd.args(["--no-scm", "--skip-unchanged", "--exclusions", "**/*.json", "--sources", "src,tests,xtask/src"]);
     cmd.args(extra);
     cmd
 }
 
 pub fn sonar_scan(args: &SonarScanArgs) {
-    let mut cmd = build_sonar_scan_command(args.report_root.as_deref(), &args.extra);
+    let mut cmd = build_sonar_scan_command(args.report_root.as_deref(), args.scope_file.as_deref(), &args.extra);
     cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
     let mut child = cmd.spawn().expect("failed to run cargo run -- scan");
     let timeout = Duration::from_secs(args.timeout);
@@ -165,7 +177,7 @@ mod tests {
 
     #[test]
     fn sonar_scan_no_report_root() {
-        let cmd = build_sonar_scan_command(None, &[]);
+        let cmd = build_sonar_scan_command(None, None, &[]);
         assert_eq!(
             args_vec(&cmd),
             vec![
@@ -180,7 +192,7 @@ mod tests {
         let tmp = env::temp_dir().join(format!("xtask-scan-empty-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
-        let cmd = build_sonar_scan_command(Some(tmp.to_str().unwrap()), &[]);
+        let cmd = build_sonar_scan_command(Some(tmp.to_str().unwrap()), None, &[]);
         let args = args_vec(&cmd);
         assert!(!args.iter().any(|a| a == "--clippy-report"), "should not have --clippy-report: {:?}", args);
         assert!(!args.iter().any(|a| a == "--coverage-report"), "should not have --coverage-report: {:?}", args);
@@ -197,7 +209,7 @@ mod tests {
         fs::create_dir_all(&tests_dir).unwrap();
         fs::write(clippy_dir.join("clippy-report.json"), "[]").unwrap();
         fs::write(tests_dir.join("coverage.xml"), "<xml/>").unwrap();
-        let cmd = build_sonar_scan_command(Some(tmp.to_str().unwrap()), &[]);
+        let cmd = build_sonar_scan_command(Some(tmp.to_str().unwrap()), None, &[]);
         let args = args_vec(&cmd);
         assert!(args.iter().any(|a| a == "--clippy-report"), "should have --clippy-report: {:?}", args);
         assert!(args.iter().any(|a| a == "--coverage-report"), "should have --coverage-report: {:?}", args);
@@ -209,8 +221,36 @@ mod tests {
     #[test]
     fn sonar_scan_extra_args_forwarded() {
         let extra = vec!["-Dsonar.verbose=true".to_string(), "--new-code".to_string()];
-        let cmd = build_sonar_scan_command(None, &extra);
+        let cmd = build_sonar_scan_command(None, None, &extra);
         assert!(args_vec(&cmd).ends_with(&["-Dsonar.verbose=true".to_string(), "--new-code".to_string()]));
+    }
+
+    #[test]
+    fn sonar_scan_scope_file_with_entries() {
+        let tmp = env::temp_dir().join(format!("xtask-scope-entries-{}", std::process::id()));
+        fs::write(&tmp, "src/main.rs\nsrc/lib.rs\n\n").unwrap();
+        let cmd = build_sonar_scan_command(None, Some(tmp.to_str().unwrap()), &[]);
+        let args = args_vec(&cmd);
+        let idx = args.iter().position(|a| a == "--inclusions").expect("should have --inclusions");
+        assert_eq!(args[idx + 1], "src/main.rs,src/lib.rs");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn sonar_scan_scope_file_empty() {
+        let tmp = env::temp_dir().join(format!("xtask-scope-empty-{}", std::process::id()));
+        fs::write(&tmp, "\n\n").unwrap();
+        let cmd = build_sonar_scan_command(None, Some(tmp.to_str().unwrap()), &[]);
+        let args = args_vec(&cmd);
+        assert!(!args.iter().any(|a| a == "--inclusions"), "should not have --inclusions for empty file: {:?}", args);
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn sonar_scan_scope_file_nonexistent() {
+        let cmd = build_sonar_scan_command(None, Some("/nonexistent/scope.txt"), &[]);
+        let args = args_vec(&cmd);
+        assert!(!args.iter().any(|a| a == "--inclusions"), "should not have --inclusions for missing file: {:?}", args);
     }
 
     #[test]
@@ -269,5 +309,21 @@ mod tests {
     fn resolve_with_env_falls_back_to_default() {
         let val = resolve_with_env(None, "NONEXISTENT_VAR_12345", "default.json");
         assert_eq!(val, "default.json");
+    }
+
+    #[test]
+    fn resolve_with_env_reads_present_env_var() {
+        // PATH is always set; verify the env-var-found branch is taken
+        let expected = env::var("PATH").expect("PATH must be set in test environment");
+        let val = resolve_with_env(None, "PATH", "fallback.json");
+        assert_eq!(val, expected);
+    }
+
+    #[test]
+    fn resolve_with_env_explicit_overrides_present_env_var() {
+        // Even when the env var exists, an explicit value must win
+        let _ = env::var("PATH").expect("PATH must be set in test environment");
+        let val = resolve_with_env(Some("explicit.xml"), "PATH", "fallback.json");
+        assert_eq!(val, "explicit.xml");
     }
 }

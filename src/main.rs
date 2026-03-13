@@ -342,6 +342,10 @@ enum Command {
         #[arg(long)]
         sources: Option<String>,
 
+        /// File inclusion patterns (comma-separated globs for sonar.inclusions)
+        #[arg(long)]
+        inclusions: Option<String>,
+
         /// Path to .NET solution file (required for dotnet scanner)
         #[arg(long)]
         solution: Option<String>,
@@ -649,6 +653,7 @@ async fn main() {
             skip_unchanged,
             ref exclusions,
             ref sources,
+            ref inclusions,
             ref solution,
             ref opencover_report,
             ref lcov_report,
@@ -675,6 +680,7 @@ async fn main() {
                 skip_unchanged,
                 exclusions: exclusions.clone(),
                 sources: sources.clone(),
+                inclusions: inclusions.clone(),
                 extra: extra.clone(),
                 json: cli.json,
                 solution: solution.clone(),
