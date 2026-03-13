@@ -35,90 +35,95 @@ pub fn parse_test_failures(output: &str) -> Vec<TestFailure> {
     failures
 }
 
-fn parse_compile_errors(output: &str, failures: &mut Vec<TestFailure>) {
-    let lines: Vec<&str> = output.lines().collect();
-    for i in 0..lines.len() {
-        let trimmed = lines[i].trim();
-        // Match "error[E0308]: mismatched types" or "error: cannot find..."
-        let msg = if let Some(rest) = trimmed.strip_prefix("error[") {
-            // error[E0308]: message
-            rest.find("]: ").map(|pos| rest[pos + 3..].to_string())
-        } else if let Some(rest) = trimmed.strip_prefix("error: ") {
-            // error: message (but skip "error: could not compile" summary lines)
-            if rest.starts_with("could not compile")
-                || rest.starts_with("aborting")
-                || rest.starts_with("test failed")
-            {
-                None
-            } else {
-                Some(rest.to_string())
-            }
-        } else {
+fn extract_error_message(trimmed: &str) -> Option<String> {
+    if let Some(rest) = trimmed.strip_prefix("error[") {
+        rest.find("]: ").map(|pos| rest[pos + 3..].to_string())
+    } else if let Some(rest) = trimmed.strip_prefix("error: ") {
+        if rest.starts_with("could not compile")
+            || rest.starts_with("aborting")
+            || rest.starts_with("test failed")
+        {
             None
-        };
-        let Some(message) = msg else { continue };
-
-        // Look for " --> file:line:col" on the next line
-        let location = if i + 1 < lines.len() {
-            let next = lines[i + 1].trim();
-            if let Some(loc) = next.strip_prefix("--> ") {
-                loc.to_string()
-            } else {
-                String::new()
-            }
         } else {
-            String::new()
-        };
-
-        let test_name = if location.is_empty() {
-            format!("compile error: {message}")
-        } else {
-            format!("compile error at {location}")
-        };
-
-        failures.push(TestFailure {
-            test: test_name,
-            message,
-        });
+            Some(rest.to_string())
+        }
+    } else {
+        None
     }
 }
 
-fn parse_runtime_failures(output: &str, failures: &mut Vec<TestFailure>) {
-    let mut messages: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+fn extract_location(lines: &[&str], i: usize) -> String {
+    if i + 1 < lines.len() {
+        let next = lines[i + 1].trim();
+        if let Some(loc) = next.strip_prefix("--> ") {
+            loc.to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    }
+}
 
-    // First pass: extract assertion messages from stdout sections
+fn format_test_name(message: &str, location: &str) -> String {
+    if location.is_empty() {
+        format!("compile error: {message}")
+    } else {
+        format!("compile error at {location}")
+    }
+}
+
+fn extract_test_stdout_section<'a>(all_lines: &[&'a str], start_idx: usize) -> (String, Vec<&'a str>, usize) {
+    let line = all_lines[start_idx];
+    if let Some(test_name) = line
+        .strip_prefix("---- ")
+        .and_then(|s| s.strip_suffix(" stdout ----"))
+    {
+        let mut msg_lines = Vec::new();
+        let mut i = start_idx + 1;
+        while i < all_lines.len() {
+            let inner = all_lines[i];
+            if inner.starts_with("---- ") || inner.trim() == "failures:" {
+                break;
+            }
+            msg_lines.push(inner);
+            i += 1;
+        }
+        (test_name.to_string(), msg_lines, i)
+    } else {
+        (String::new(), Vec::new(), start_idx + 1)
+    }
+}
+
+fn extract_test_messages(output: &str) -> std::collections::HashMap<String, String> {
+    let mut messages = std::collections::HashMap::new();
     let all_lines: Vec<&str> = output.lines().collect();
     let mut i = 0;
+
     while i < all_lines.len() {
-        let line = all_lines[i];
-        // Match "---- test_name stdout ----"
-        if let Some(test_name) = line
-            .strip_prefix("---- ")
-            .and_then(|s| s.strip_suffix(" stdout ----"))
-        {
-            let test_name = test_name.to_string();
-            let mut msg_lines = Vec::new();
-            i += 1;
-            while i < all_lines.len() {
-                let inner = all_lines[i];
-                if inner.starts_with("---- ") || inner.trim() == "failures:" {
-                    break;
-                }
-                msg_lines.push(inner);
-                i += 1;
-            }
+        if all_lines[i].starts_with("---- ") && all_lines[i].contains(" stdout ----") {
+            let (test_name, msg_lines, next_i) = extract_test_stdout_section(&all_lines, i);
             let msg = extract_assertion_message(&msg_lines);
             if !msg.is_empty() {
                 messages.insert(test_name, msg);
             }
+            i = next_i;
         } else {
             i += 1;
         }
     }
 
-    // Second pass: find the summary failures list (the second "failures:" block)
+    messages
+}
+
+fn collect_summary_failures(
+    output: &str,
+    messages: &std::collections::HashMap<String, String>,
+) -> Vec<TestFailure> {
+    let mut failures = Vec::new();
     let mut failures_count = 0;
     let mut in_summary = false;
+
     for line in output.lines() {
         if line.trim() == "failures:" {
             failures_count += 1;
@@ -132,7 +137,6 @@ fn parse_runtime_failures(output: &str, failures: &mut Vec<TestFailure>) {
             if trimmed.is_empty() {
                 continue;
             }
-            // End of summary list
             if trimmed.starts_with("test result:") {
                 break;
             }
@@ -144,6 +148,32 @@ fn parse_runtime_failures(output: &str, failures: &mut Vec<TestFailure>) {
             });
         }
     }
+
+    failures
+}
+
+fn parse_compile_errors(output: &str, failures: &mut Vec<TestFailure>) {
+    let lines: Vec<&str> = output.lines().collect();
+    for i in 0..lines.len() {
+        let trimmed = lines[i].trim();
+        let Some(message) = extract_error_message(trimmed) else {
+            continue;
+        };
+
+        let location = extract_location(&lines, i);
+        let test_name = format_test_name(&message, &location);
+
+        failures.push(TestFailure {
+            test: test_name,
+            message,
+        });
+    }
+}
+
+fn parse_runtime_failures(output: &str, failures: &mut Vec<TestFailure>) {
+    let messages = extract_test_messages(output);
+    let runtime_failures = collect_summary_failures(output, &messages);
+    failures.extend(runtime_failures);
 }
 
 fn extract_assertion_message(lines: &[&str]) -> String {
