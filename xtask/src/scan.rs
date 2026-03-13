@@ -52,7 +52,7 @@ pub fn build_sonar_scan_command(report_root: Option<&str>, extra: &[String]) -> 
         }
     }
 
-    cmd.args(["--no-scm", "--skip-unchanged", "--exclusions", "**/*.json", "--sources", "src,tests"]);
+    cmd.args(["--no-scm", "--skip-unchanged", "--exclusions", "**/*.json", "--sources", "src,tests,xtask/src"]);
     cmd.args(extra);
     cmd
 }
@@ -170,7 +170,7 @@ mod tests {
             args_vec(&cmd),
             vec![
                 "run", "--", "--project", "sonar-cli", "scan",
-                "--no-scm", "--skip-unchanged", "--exclusions", "**/*.json", "--sources", "src,tests",
+                "--no-scm", "--skip-unchanged", "--exclusions", "**/*.json", "--sources", "src,tests,xtask/src",
             ]
         );
     }

@@ -64,7 +64,6 @@ This creates `$REPORT_ROOT`. Absolute path so worktree agents write to the main 
 
 - **Default**: Changed AND untracked `.rs` files — `cargo xtask scope`
 - **`--full`**: All files — `cargo xtask scope --full`
-- **Exclude**: Remove `xtask/` paths from scope — dev tooling, not production code.
 - **Persist**: Write the final scope list to `$REPORT_ROOT/scope.txt` using the `Write` tool (one file path per line). This file is used by the triage agent for filtering.
 
 ## Phase 1: Setup
